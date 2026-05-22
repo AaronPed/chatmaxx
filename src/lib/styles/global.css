@@ -1,0 +1,377 @@
+/* chatmaxx — paper & ink, with a navy whisper */
+:root {
+  --paper: #efe7d4;
+  --paper-soft: #e9deca;
+  --paper-deep: #ddd0b3;
+  --ink: #2a2419;
+  --ink-soft: #4a3f2d;
+  --ink-muted: #6b5e44;
+  --rule: #c9bb98;
+  --accent: #6b4423;
+  --accent-soft: #94704a;
+  --highlight: #c9a86a;
+  --danger: #8a3324;
+
+  /* muted navy palette for accents / shadows */
+  --navy: #2c3e5e;
+  --navy-deep: #1c2a44;
+  --navy-soft: #5d7298;
+  --navy-tint: rgba(44, 62, 94, 0.12);
+
+  /* layered shadows: faint surface line + soft navy bloom + tighter foot */
+  --shadow: 0 1px 0 rgba(42, 36, 25, 0.06),
+            0 6px 16px -10px rgba(42, 36, 25, 0.25);
+  --shadow-navy: 0 1px 0 rgba(255, 252, 240, 0.5) inset,
+                 0 1px 0 rgba(28, 42, 68, 0.08),
+                 0 10px 30px -14px rgba(28, 42, 68, 0.45),
+                 0 2px 8px -2px rgba(28, 42, 68, 0.18);
+  --shadow-navy-soft: 0 1px 0 rgba(255, 252, 240, 0.5) inset,
+                      0 4px 14px -8px rgba(28, 42, 68, 0.30),
+                      0 1px 3px rgba(28, 42, 68, 0.12);
+
+  --radius: 2px;
+  --radius-soft: 6px;
+  --serif: "Times New Roman", Times, "Liberation Serif", serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* SVG fractal noise — reusable via background-image:var(--noise) */
+  --noise: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.11 0 0 0 0 0.16 0 0 0 0 0.27 0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Grainy paper backdrop, layered:
+   (1) soft diagonal gradient for warmth
+   (2) SVG fractal-noise overlay (per css-tricks.com/grainy-gradients)
+*/
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -2;
+  background:
+    radial-gradient(1200px 800px at 15% 0%, #f6efdb 0%, transparent 60%),
+    radial-gradient(900px 600px at 100% 100%, #e7dcc1 0%, transparent 55%),
+    linear-gradient(180deg, #efe7d4 0%, #ebe2cc 100%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.42;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 320 320' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.16 0 0 0 0 0.14 0 0 0 0 0.10 0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 320px 320px;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--serif);
+  font-weight: normal;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  margin: 0 0 0.4em 0;
+}
+
+h1 { font-size: 2.4rem; font-style: italic; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.15rem; }
+
+a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+a:hover { color: var(--ink); }
+
+button, .btn {
+  font-family: var(--serif);
+  font-size: 1rem;
+  background: var(--paper-soft);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.45em 1em;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  box-shadow: var(--shadow);
+}
+button:hover, .btn:hover {
+  background: var(--paper-deep);
+  border-color: var(--ink-muted);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--paper);
+  border-color: var(--accent);
+}
+button.primary:hover {
+  background: #553519;
+  border-color: #553519;
+}
+
+button.navy {
+  background: var(--navy);
+  color: var(--paper);
+  border-color: var(--navy-deep);
+  box-shadow: var(--shadow-navy-soft);
+}
+button.navy:hover {
+  background: var(--navy-deep);
+}
+button.ghost {
+  background: transparent;
+  box-shadow: none;
+}
+button.ghost:hover {
+  background: rgba(28, 42, 68, 0.06);
+}
+button.stop {
+  background: var(--paper-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+  box-shadow: var(--shadow-navy-soft);
+}
+button.stop:hover {
+  background: var(--danger);
+  color: var(--paper);
+}
+
+input, textarea, select {
+  font-family: var(--serif);
+  font-size: 1rem;
+  background: rgba(255, 252, 240, 0.6);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.5em 0.7em;
+  outline: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  background: rgba(255, 252, 240, 0.85);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 4em;
+  line-height: 1.5;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 1.5rem 0;
+}
+
+code, pre, .mono {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+pre {
+  background: rgba(42, 36, 25, 0.05);
+  border: 1px solid var(--rule);
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  border-radius: var(--radius);
+}
+code {
+  background: rgba(42, 36, 25, 0.06);
+  padding: 0.05em 0.3em;
+  border-radius: 2px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+th, td {
+  text-align: left;
+  padding: 0.55em 0.7em;
+  border-bottom: 1px solid var(--rule);
+}
+th {
+  font-style: italic;
+  font-weight: normal;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--ink-soft);
+}
+
+.card {
+  position: relative;
+  background: rgba(255, 252, 240, 0.55);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-soft);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-navy-soft);
+  isolation: isolate;
+}
+
+/* Reusable grainy texture on any element:
+     <div class="grain">…</div>  or  class="card grain"
+   Renders the fractal-noise SVG above its background via ::after. */
+.grain { position: relative; isolation: isolate; }
+.grain::after,
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--noise);
+  background-size: 200px 200px;
+  opacity: 0.18;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: -1;
+}
+
+/* "Thinking" canvas: a shimmering, grainy block that sits where the
+   assistant text is about to appear. Two layers of fractal noise drift in
+   opposite directions while a slow color sweep washes navy → highlight
+   across the surface. Vanishes the moment real tokens arrive. */
+.thinking {
+  position: relative;
+  min-height: 1.6em;
+  border-radius: var(--radius-soft);
+  overflow: hidden;
+  background:
+    linear-gradient(
+      110deg,
+      rgba(44, 62, 94, 0.06) 0%,
+      rgba(201, 168, 106, 0.18) 35%,
+      rgba(44, 62, 94, 0.10) 60%,
+      rgba(201, 168, 106, 0.15) 100%
+    );
+  background-size: 220% 100%;
+  animation: thinking-sweep 3.2s ease-in-out infinite;
+  box-shadow:
+    inset 0 0 0 1px rgba(28, 42, 68, 0.10),
+    var(--shadow-navy-soft);
+  isolation: isolate;
+}
+.thinking::before,
+.thinking::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--noise);
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+.thinking::before {
+  background-size: 180px 180px;
+  opacity: 0.42;
+  animation: thinking-drift-a 7s linear infinite;
+}
+.thinking::after {
+  background-size: 260px 260px;
+  opacity: 0.28;
+  animation: thinking-drift-b 11s linear infinite reverse;
+}
+@keyframes thinking-sweep {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+@keyframes thinking-drift-a {
+  from { background-position: 0 0; }
+  to   { background-position: 360px 240px; }
+}
+@keyframes thinking-drift-b {
+  from { background-position: 0 0; }
+  to   { background-position: -420px 300px; }
+}
+/* Tiny "spark" dots that twinkle while thinking — pure CSS, no JS. */
+.thinking .sparks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.thinking .sparks::before,
+.thinking .sparks::after {
+  content: "";
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--navy);
+  opacity: 0;
+  animation: spark 2.6s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(44, 62, 94, 0.6);
+}
+.thinking .sparks::before { top: 30%; left: 18%; animation-delay: 0s; }
+.thinking .sparks::after  { top: 60%; left: 72%; animation-delay: 1.1s; background: var(--highlight); }
+@keyframes spark {
+  0%, 100%        { opacity: 0; transform: scale(0.6); }
+  30%, 60%        { opacity: 0.9; transform: scale(1.0); }
+}
+
+/* A "lift" — heavier navy shadow + grainy gradient backdrop.
+   Use on the compose dock, important callouts, etc. */
+.lift {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 252, 240, 0.85) 0%, rgba(238, 230, 211, 0.75) 100%);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-soft);
+  box-shadow: var(--shadow-navy);
+}
+.lift::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--noise);
+  background-size: 220px 220px;
+  opacity: 0.22;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: -1;
+}
+
+.muted { color: var(--ink-muted); }
+.small { font-size: 0.88rem; }
+.italic { font-style: italic; }
+.center { text-align: center; }
+.row { display: flex; gap: 0.6rem; align-items: center; }
+.stack { display: flex; flex-direction: column; gap: 0.6rem; }
+
+::selection {
+  background: var(--highlight);
+  color: var(--ink);
+}
+
+/* Subtle paper edge */
+.paper-edge {
+  border: 1px solid var(--rule);
+  background:
+    linear-gradient(180deg, rgba(255,252,240,0.65) 0%, rgba(255,252,240,0.35) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,252,240,0.4),
+    var(--shadow);
+}

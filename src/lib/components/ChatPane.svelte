@@ -1,0 +1,603 @@
+<script lang="ts">
+  import { onMount, tick, untrack } from 'svelte';
+  import type { ClientUser } from '$lib/client/session';
+  import Sparkles from '$lib/components/Sparkles.svelte';
+  import { renderMarkdown } from '$lib/client/markdown';
+
+  interface Model {
+    id: number; label: string;
+    provider_name: string; provider_label: string; model_id: string;
+  }
+  interface UIAttachment { name: string; mime_type: string; data_url: string; size: number; }
+  interface UIMessage {
+    id: string; role: 'user' | 'assistant'; content: string;
+    pending?: boolean; stopped?: boolean;
+    attachments?: UIAttachment[];
+  }
+
+  const MAX_FILES = 5;
+  const MAX_BYTES = 5 * 1024 * 1024;
+  const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp';
+
+  let {
+    user,
+    conversationId,
+    models,
+    selectedModelId = $bindable<number | null>(),
+    initialMessages,
+    onConversationStart,
+    onTitleChange
+  }: {
+    user: ClientUser;
+    conversationId: string | null;
+    models: Model[];
+    selectedModelId: number | null;
+    initialMessages: UIMessage[];
+    onConversationStart: (modelId: number) => Promise<string>;
+    onTitleChange: (id: string, title: string) => void;
+  } = $props();
+
+  // Rotating welcome aliases. Picked fresh whenever the user lands on an
+  // empty thread (new chat). Plus their real nickname, weighted a little
+  // higher than any single alias.
+  const FUN_NAMES = [
+    'mogger', 'chatmaxxer', 'tokenmaxxer', 'slopmaxxer', 'promptmaxxer',
+    'giga-mogger', 'llm-mogger', 'prompt-mogger', 'ragemaxxer', 'vibemaxxer',
+    'copemaxxer'
+  ];
+  function pickGreetName(nickname: string) {
+    const safe = nickname.trim().slice(0, 24);
+    // ~30% chance to use the real nickname (if it looks reasonable).
+    if (safe && Math.random() < 0.30) return safe;
+    return FUN_NAMES[Math.floor(Math.random() * FUN_NAMES.length)];
+  }
+  let greetName = $state('');
+  onMount(() => { greetName = pickGreetName(user.nickname); });
+
+  let messages = $state<UIMessage[]>([]);
+  let input = $state('');
+  let sending = $state(false);
+  let scrollEl: HTMLDivElement | undefined = $state();
+  let textareaEl: HTMLTextAreaElement | undefined = $state();
+  let fileInputEl: HTMLInputElement | undefined = $state();
+  let toolsOpen = $state(false);
+  let pendingAttachments = $state<UIAttachment[]>([]);
+  let attachErr = $state('');
+  let abortCtl: AbortController | null = null;
+
+  // Reset messages when the parent swaps the conversation. We read
+  // initialMessages here but mutate `messages`, which would re-trigger this
+  // effect — `untrack` keeps the loop from forming.
+  $effect(() => {
+    const incoming = initialMessages;
+    untrack(() => { messages = [...incoming]; });
+  });
+
+  async function scrollDown() {
+    await tick();
+    scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' });
+  }
+
+  function autosize() {
+    if (!textareaEl) return;
+    textareaEl.style.height = 'auto';
+    textareaEl.style.height = Math.min(textareaEl.scrollHeight, 320) + 'px';
+  }
+
+  function fileToDataUrl(file: File): Promise<string> {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result as string);
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function onPick(e: Event) {
+    attachErr = '';
+    const fl = (e.currentTarget as HTMLInputElement).files;
+    if (!fl) return;
+    for (const f of Array.from(fl)) {
+      if (pendingAttachments.length >= MAX_FILES) {
+        attachErr = `max ${MAX_FILES} files per message`;
+        break;
+      }
+      if (f.size > MAX_BYTES) {
+        attachErr = `${f.name} is ${(f.size / 1024 / 1024).toFixed(1)} MB — limit is 5 MB`;
+        continue;
+      }
+      if (!f.type.startsWith('image/')) {
+        attachErr = `${f.name}: only images for now`;
+        continue;
+      }
+      try {
+        const data_url = await fileToDataUrl(f);
+        pendingAttachments = [...pendingAttachments, {
+          name: f.name, mime_type: f.type, data_url, size: f.size
+        }];
+      } catch {
+        attachErr = `couldn't read ${f.name}`;
+      }
+    }
+    (e.currentTarget as HTMLInputElement).value = '';
+  }
+
+  function removeAttachment(i: number) {
+    pendingAttachments = pendingAttachments.filter((_, idx) => idx !== i);
+  }
+
+  async function send() {
+    const content = input.trim();
+    if ((!content && pendingAttachments.length === 0) || sending || !selectedModelId) return;
+
+    sending = true;
+    const attachmentsToSend = pendingAttachments;
+    input = '';
+    pendingAttachments = [];
+    attachErr = '';
+    await tick();
+    autosize();
+
+    let cid = conversationId;
+    if (!cid) {
+      try {
+        cid = await onConversationStart(selectedModelId);
+      } catch {
+        sending = false;
+        messages = [...messages, {
+          id: crypto.randomUUID(), role: 'assistant',
+          content: 'Could not start a conversation.'
+        }];
+        return;
+      }
+    }
+
+    const userMsg: UIMessage = {
+      id: crypto.randomUUID(), role: 'user', content,
+      attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined
+    };
+    const assistantMsg: UIMessage = {
+      id: crypto.randomUUID(), role: 'assistant', content: '', pending: true
+    };
+    messages = [...messages, userMsg, assistantMsg];
+    scrollDown();
+
+    abortCtl = new AbortController();
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        signal: abortCtl.signal,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id, conversationId: cid, content,
+          attachments: attachmentsToSend
+        })
+      });
+      if (!res.ok || !res.body) {
+        assistantMsg.content = `⚠ ${await res.text().catch(() => 'request failed')}`;
+        assistantMsg.pending = false;
+        messages = [...messages];
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        assistantMsg.content = buf;
+        messages = [...messages];
+        scrollDown();
+      }
+      assistantMsg.pending = false;
+      messages = [...messages];
+
+      // Seed the title from the first user prompt on the first exchange.
+      if (messages.filter((m) => m.role === 'assistant' && !m.pending).length === 1) {
+        const title = content.split('\n')[0].slice(0, 80) || 'New conversation';
+        onTitleChange(cid, title);
+      }
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        // User pressed stop. Persist whatever we received so the message
+        // survives a page reload, marked as stopped.
+        assistantMsg.pending = false;
+        assistantMsg.stopped = true;
+        if (assistantMsg.content) {
+          fetch(`/api/conversations/${cid}/messages`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              userId: user.id,
+              role: 'assistant',
+              content: assistantMsg.content + '\n\n_(stopped)_'
+            })
+          }).catch(() => {});
+        }
+        messages = [...messages];
+      } else {
+        assistantMsg.content = '⚠ network error';
+        assistantMsg.pending = false;
+        messages = [...messages];
+      }
+    } finally {
+      abortCtl = null;
+      sending = false;
+    }
+  }
+
+  function stop() {
+    abortCtl?.abort();
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }
+
+  const selectedModel = $derived(models.find((m) => m.id === selectedModelId));
+</script>
+
+<section class="chat">
+  <div class="scroll" bind:this={scrollEl}>
+    <div class="thread">
+      {#if messages.length === 0}
+        <div class="welcome">
+          <Sparkles count={40} />
+          <h1 class="italic">What's on your mind{greetName ? `, ${greetName}` : ''}?</h1>
+          <p class="muted">Pick a model below and write. <code>Enter</code> sends, <code>Shift+Enter</code> for newlines.</p>
+        </div>
+      {/if}
+      {#each messages as m (m.id)}
+        <article class="msg" class:user={m.role === 'user'} class:assistant={m.role === 'assistant'}>
+          <div class="role small italic muted">
+            {m.role === 'user' ? user.nickname : 'assistant'}
+            {#if m.stopped}<span class="small">· stopped</span>{/if}
+          </div>
+          {#if m.role === 'assistant' && m.pending && !m.content}
+            <div class="thinking" aria-label="thinking"><span class="sparks"></span></div>
+          {:else}
+            {#if m.attachments && m.attachments.length > 0}
+              <div class="msg-thumbs">
+                {#each m.attachments as a (a.data_url)}
+                  <img class="msg-thumb" src={a.data_url} alt={a.name} title={a.name} />
+                {/each}
+              </div>
+            {/if}
+            {#if m.content}
+              {#if m.role === 'assistant'}
+                <div class="body prose">{@html renderMarkdown(m.content)}</div>
+              {:else}
+                <div class="body">{m.content}</div>
+              {/if}
+            {/if}
+          {/if}
+        </article>
+      {/each}
+    </div>
+  </div>
+
+  <footer class="composer-wrap">
+    <div class="composer lift">
+      {#if pendingAttachments.length > 0}
+        <div class="thumbs">
+          {#each pendingAttachments as a, i (a.data_url)}
+            <div class="thumb" title={`${a.name} · ${(a.size / 1024).toFixed(0)} KB`}>
+              <img src={a.data_url} alt={a.name} />
+              <button type="button" class="thumb-x" onclick={() => removeAttachment(i)} aria-label="remove">×</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if attachErr}
+        <div class="small" style="color: var(--danger); padding: 0 0.4rem">{attachErr}</div>
+      {/if}
+      <textarea
+        bind:this={textareaEl}
+        bind:value={input}
+        oninput={autosize}
+        onkeydown={onKeydown}
+        placeholder={selectedModelId ? 'write something…' : 'no models — visit /admin to configure'}
+        disabled={!selectedModelId || sending}
+        rows="1"
+      ></textarea>
+      <input
+        type="file"
+        bind:this={fileInputEl}
+        accept={ACCEPT}
+        multiple
+        hidden
+        onchange={onPick}
+      />
+
+      <div class="toolbar">
+        <div class="row" style="gap: 0.4rem">
+          <label class="picker" title="model">
+            <span class="picker-label small italic muted">model</span>
+            <select bind:value={selectedModelId} disabled={!!conversationId || sending}>
+              {#each models as m}
+                <option value={m.id}>{m.provider_label} · {m.label}</option>
+              {/each}
+            </select>
+          </label>
+
+          <div class="picker tools-wrap" style="position: relative;">
+            <button
+              type="button"
+              class="ghost small tools-toggle"
+              onclick={() => (toolsOpen = !toolsOpen)}
+              aria-expanded={toolsOpen}
+            >
+              tools <span class="caret">▾</span>
+            </button>
+            {#if toolsOpen}
+              <div class="tools-pop card">
+                <div class="small italic muted">No tools available for this model yet.</div>
+                <div class="small muted" style="margin-top: 0.3rem">
+                  Web search, code execution, image generation — coming once the chosen
+                  provider exposes them.
+                </div>
+              </div>
+            {/if}
+          </div>
+
+          <button
+            type="button"
+            class="ghost small attach"
+            title="attach images (max 5 × 5 MB)"
+            onclick={() => fileInputEl?.click()}
+            disabled={sending || pendingAttachments.length >= MAX_FILES}
+          >📎</button>
+        </div>
+
+        <div class="row" style="gap: 0.6rem; align-items: center">
+          {#if selectedModel}
+            <span class="small muted italic">{selectedModel.provider_name}/{selectedModel.model_id}</span>
+          {/if}
+          {#if sending}
+            <button class="stop" onclick={stop} title="stop generation">■ stop</button>
+          {:else}
+            <button
+              class="navy"
+              onclick={send}
+              disabled={(!input.trim() && pendingAttachments.length === 0) || !selectedModelId}
+            >send</button>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </footer>
+</section>
+
+<style>
+  .chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-width: 0;
+  }
+  .scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem 1.5rem 0.6rem;
+  }
+  .thread {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+    padding-bottom: 1rem;
+  }
+  .welcome {
+    position: relative;
+    text-align: center;
+    padding: 4rem 1rem 2rem;
+    isolation: isolate;
+  }
+  .welcome > h1, .welcome > p { position: relative; z-index: 2; }
+  .msg .role { margin-bottom: 0.25rem; }
+  .msg.user .body {
+    background: rgba(201, 168, 106, 0.18);
+    border: 1px solid var(--rule);
+    padding: 0.6rem 0.9rem;
+    border-radius: var(--radius-soft);
+    display: inline-block;
+    max-width: 100%;
+    white-space: pre-wrap;
+    box-shadow: var(--shadow-navy-soft);
+  }
+  .msg.assistant .body {
+    line-height: 1.65;
+  }
+  /* Sanitized-HTML rendering for assistant messages. Tight margins so the
+     thread doesn't feel like a textbook. Markdown semantics, paper aesthetic. */
+  .prose :global(p) { margin: 0.4em 0; }
+  .prose :global(p:first-child) { margin-top: 0; }
+  .prose :global(p:last-child)  { margin-bottom: 0; }
+  .prose :global(h1),
+  .prose :global(h2),
+  .prose :global(h3),
+  .prose :global(h4) {
+    font-family: var(--serif);
+    font-weight: normal;
+    margin: 0.9em 0 0.3em;
+    line-height: 1.25;
+  }
+  .prose :global(h1) { font-size: 1.6rem; font-style: italic; }
+  .prose :global(h2) { font-size: 1.35rem; }
+  .prose :global(h3) { font-size: 1.15rem; }
+  .prose :global(h4) { font-size: 1rem; font-style: italic; }
+  .prose :global(ul),
+  .prose :global(ol) { margin: 0.4em 0; padding-left: 1.4em; }
+  .prose :global(li) { margin: 0.18em 0; }
+  .prose :global(li > p) { margin: 0.2em 0; }
+  .prose :global(blockquote) {
+    margin: 0.6em 0;
+    padding: 0.1em 0.9em;
+    border-left: 3px solid var(--rule);
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+  .prose :global(hr) {
+    border: none;
+    border-top: 1px solid var(--rule);
+    margin: 1em 0;
+  }
+  .prose :global(a) {
+    color: var(--accent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  .prose :global(code) {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    background: rgba(42, 36, 25, 0.08);
+    padding: 0.05em 0.35em;
+    border-radius: 2px;
+  }
+  .prose :global(pre) {
+    background: rgba(28, 42, 68, 0.06);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-soft);
+    padding: 0.7em 0.9em;
+    overflow-x: auto;
+    margin: 0.55em 0;
+    box-shadow: var(--shadow-navy-soft);
+  }
+  .prose :global(pre code) {
+    background: transparent;
+    padding: 0;
+    font-size: 0.92em;
+    line-height: 1.5;
+  }
+  .prose :global(table) {
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+    margin: 0.6em 0;
+  }
+  .prose :global(th),
+  .prose :global(td) {
+    border: 1px solid var(--rule);
+    padding: 0.35em 0.6em;
+    text-align: left;
+  }
+  .prose :global(th) {
+    font-style: italic;
+    font-weight: normal;
+    background: rgba(44, 62, 94, 0.06);
+  }
+  .prose :global(img) {
+    max-width: 100%;
+    border-radius: var(--radius);
+    border: 1px solid var(--rule);
+  }
+
+  .composer-wrap {
+    padding: 0.8rem 1.5rem 1.2rem;
+  }
+  .composer {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 0.9rem 1rem 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .composer textarea {
+    resize: none;          /* auto-grow handles it */
+    overflow-y: auto;
+    border: none;
+    background: transparent;
+    padding: 0.35rem 0.4rem;
+    font-size: 1.05rem;
+    line-height: 1.5;
+    min-height: 1.6rem;
+    max-height: 320px;
+    box-shadow: none;
+  }
+  .composer textarea:focus { background: transparent; }
+
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    border-top: 1px dashed var(--rule);
+    padding-top: 0.5rem;
+  }
+  .picker { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .picker-label { padding-left: 0.2rem; }
+  .picker select {
+    background: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
+    padding: 0.25em 0.4em;
+    cursor: pointer;
+  }
+  .picker select:hover { border-color: var(--rule); }
+  .picker select:focus { border-color: var(--navy); }
+  .tools-toggle .caret { font-size: 0.8em; }
+  .tools-pop {
+    position: absolute;
+    bottom: calc(100% + 0.4rem);
+    left: 0;
+    width: 280px;
+    z-index: 20;
+  }
+  .attach {
+    font-size: 1.1rem;
+    padding: 0.25em 0.55em;
+  }
+
+  .thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.2rem 0.2rem 0.4rem;
+  }
+  .thumb {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-navy-soft);
+    background: var(--paper);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb-x {
+    position: absolute;
+    top: -6px; right: -6px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    line-height: 1;
+    padding: 0;
+    font-size: 0.9rem;
+    box-shadow: var(--shadow-navy-soft);
+    cursor: pointer;
+  }
+  .thumb-x:hover { background: var(--danger); color: var(--paper); border-color: var(--danger); }
+
+  .msg-thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+  }
+  .msg-thumb {
+    max-width: 240px;
+    max-height: 240px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-soft);
+    box-shadow: var(--shadow-navy-soft);
+    background: var(--paper);
+  }
+</style>
