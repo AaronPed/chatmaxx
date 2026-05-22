@@ -85,7 +85,7 @@
     height: var(--h, 140px);
     display: block;
     background:
-      linear-gradient(180deg, rgba(255, 252, 240, 0.6) 0%, rgba(238, 230, 211, 0.4) 100%);
+      linear-gradient(180deg, var(--surface) 0%, var(--surface-deeper) 100%);
     border: 1px solid var(--rule);
     border-radius: var(--radius);
     padding: 0;

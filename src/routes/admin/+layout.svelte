@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { toggleTheme, currentTheme } from '$lib/client/theme';
 
   let { children } = $props();
 
@@ -9,6 +10,9 @@
     { href: '/admin/models', label: 'Models' },
     { href: '/admin/prompts', label: 'System prompts' }
   ];
+
+  let theme = $state<'light' | 'dark'>(currentTheme());
+  function flipTheme() { theme = toggleTheme(); }
 
   async function logout() {
     await fetch('/api/admin/logout', { method: 'POST' });
@@ -30,6 +34,7 @@
     </div>
     <div class="row">
       <a href="/" class="small muted">↩ chat</a>
+      <button class="small" onclick={flipTheme}>{theme === 'dark' ? '☀ light' : '☾ dark'}</button>
       <button class="small" onclick={logout}>logout</button>
     </div>
   </header>
@@ -46,7 +51,7 @@
     align-items: center;
     padding: 0.8rem 1.5rem;
     border-bottom: 1px solid var(--rule);
-    background: rgba(255, 252, 240, 0.4);
+    background: var(--sidebar-bg);
   }
   .tab {
     text-decoration: none;

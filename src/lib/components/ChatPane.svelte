@@ -402,7 +402,7 @@
   .welcome > h1, .welcome > p { position: relative; z-index: 2; }
   .msg .role { margin-bottom: 0.25rem; }
   .msg.user .body {
-    background: rgba(201, 168, 106, 0.18);
+    background: var(--user-bubble);
     border: 1px solid var(--rule);
     padding: 0.6rem 0.9rem;
     border-radius: var(--radius-soft);
@@ -499,6 +499,7 @@
 
   .composer-wrap {
     padding: 0.8rem 1.5rem 1.2rem;
+    background: transparent;
   }
   .composer {
     max-width: 880px;

@@ -36,6 +36,82 @@
 
   /* SVG fractal noise — reusable via background-image:var(--noise) */
   --noise: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.11 0 0 0 0 0.16 0 0 0 0 0.27 0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+
+  /* Composite surfaces — derived from the palette above so the dark theme
+     only has to override these in one place. */
+  --surface:        rgba(255, 252, 240, 0.55);   /* cards */
+  --surface-deep:   rgba(255, 252, 240, 0.85);   /* lift top */
+  --surface-deeper: rgba(238, 230, 211, 0.75);   /* lift bottom */
+  --surface-input:  rgba(255, 252, 240, 0.6);
+  --surface-input-focus: rgba(255, 252, 240, 0.85);
+  --user-bubble:    rgba(201, 168, 106, 0.18);
+
+  --sidebar-bg:     rgba(255, 252, 240, 0.35);
+  --sidebar-hover:  rgba(42, 36, 25, 0.06);
+  --sidebar-active: rgba(201, 168, 106, 0.22);
+
+  --bg-warm-1: #f6efdb;
+  --bg-warm-2: #e7dcc1;
+  --bg-grad-from: #efe7d4;
+  --bg-grad-to:   #ebe2cc;
+
+  --noise-opacity: 0.42;
+}
+
+/* ============================================================
+   Dark theme — "midnight ink".
+   Background pivots to deep navy/charcoal; text is warm cream so the
+   paper-feel survives the inversion. Accent gold gets a touch brighter
+   so it still reads as warm against the dark surface.
+   ============================================================ */
+[data-theme="dark"] {
+  --paper:       #1c1f2a;
+  --paper-soft:  #232734;
+  --paper-deep:  #2b3041;
+  --ink:         #e5dbc1;
+  --ink-soft:    #c7bb9c;
+  --ink-muted:   #8e8369;
+  --rule:        #3d4252;
+  --accent:      #e0a35c;       /* warmer gold for legibility on dark */
+  --accent-soft: #b8804a;
+  --highlight:   #e8c97a;
+  --danger:      #e07060;
+
+  --navy:        #4f6594;
+  --navy-deep:   #1c2a44;
+  --navy-soft:   #89a4cf;
+  --navy-tint:   rgba(137, 164, 207, 0.18);
+
+  --shadow:      0 1px 0 rgba(0, 0, 0, 0.35),
+                 0 6px 16px -10px rgba(0, 0, 0, 0.55);
+  --shadow-navy: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+                 0 1px 0 rgba(0, 0, 0, 0.4),
+                 0 12px 30px -16px rgba(0, 0, 0, 0.75),
+                 0 2px 8px -2px rgba(28, 42, 68, 0.5);
+  --shadow-navy-soft: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+                      0 4px 14px -8px rgba(0, 0, 0, 0.55),
+                      0 1px 3px rgba(0, 0, 0, 0.4);
+
+  --surface:        rgba(35, 39, 52, 0.7);
+  --surface-deep:   rgba(43, 48, 65, 0.85);
+  --surface-deeper: rgba(28, 31, 42, 0.75);
+  --surface-input:  rgba(43, 48, 65, 0.55);
+  --surface-input-focus: rgba(43, 48, 65, 0.85);
+  --user-bubble:    rgba(224, 163, 92, 0.16);
+
+  --sidebar-bg:     rgba(22, 25, 36, 0.55);
+  --sidebar-hover:  rgba(137, 164, 207, 0.10);
+  --sidebar-active: rgba(224, 163, 92, 0.18);
+
+  --bg-warm-1: #232b40;
+  --bg-warm-2: #161a26;
+  --bg-grad-from: #1c2030;
+  --bg-grad-to:   #14171f;
+
+  /* The noise overlay's color is baked into a data URI, so re-tint via a
+     fresh URI instead of the original light one. */
+  --noise: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.85 0 0 0 0 0.82 0 0 0 0 0.72 0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  --noise-opacity: 0.22;
 }
 
 * {
@@ -54,10 +130,10 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
-/* Grainy paper backdrop, layered:
+/* Grainy paper (or midnight) backdrop, layered:
    (1) soft diagonal gradient for warmth
    (2) SVG fractal-noise overlay (per css-tricks.com/grainy-gradients)
-*/
+   Token-driven so dark theme just swaps the underlying vars. */
 body::before {
   content: "";
   position: fixed;
@@ -65,9 +141,9 @@ body::before {
   pointer-events: none;
   z-index: -2;
   background:
-    radial-gradient(1200px 800px at 15% 0%, #f6efdb 0%, transparent 60%),
-    radial-gradient(900px 600px at 100% 100%, #e7dcc1 0%, transparent 55%),
-    linear-gradient(180deg, #efe7d4 0%, #ebe2cc 100%);
+    radial-gradient(1200px 800px at 15% 0%, var(--bg-warm-1) 0%, transparent 60%),
+    radial-gradient(900px 600px at 100% 100%, var(--bg-warm-2) 0%, transparent 55%),
+    linear-gradient(180deg, var(--bg-grad-from) 0%, var(--bg-grad-to) 100%);
 }
 
 body::after {
@@ -76,11 +152,12 @@ body::after {
   inset: 0;
   pointer-events: none;
   z-index: -1;
-  opacity: 0.42;
+  opacity: var(--noise-opacity);
   mix-blend-mode: multiply;
-  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 320 320' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.16 0 0 0 0 0.14 0 0 0 0 0.10 0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-image: var(--noise);
   background-size: 320px 320px;
 }
+[data-theme="dark"] body::after { mix-blend-mode: screen; }
 
 h1, h2, h3, h4 {
   font-family: var(--serif);
@@ -163,7 +240,7 @@ button.stop:hover {
 input, textarea, select {
   font-family: var(--serif);
   font-size: 1rem;
-  background: rgba(255, 252, 240, 0.6);
+  background: var(--surface-input);
   color: var(--ink);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
@@ -173,7 +250,7 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus {
   border-color: var(--accent);
-  background: rgba(255, 252, 240, 0.85);
+  background: var(--surface-input-focus);
 }
 
 textarea {
@@ -193,14 +270,14 @@ code, pre, .mono {
   font-size: 0.92em;
 }
 pre {
-  background: rgba(42, 36, 25, 0.05);
+  background: var(--paper-soft);
   border: 1px solid var(--rule);
   padding: 0.8em 1em;
   overflow-x: auto;
   border-radius: var(--radius);
 }
 code {
-  background: rgba(42, 36, 25, 0.06);
+  background: var(--paper-soft);
   padding: 0.05em 0.3em;
   border-radius: 2px;
 }
@@ -224,7 +301,7 @@ th {
 
 .card {
   position: relative;
-  background: rgba(255, 252, 240, 0.55);
+  background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: var(--radius-soft);
   padding: 1rem 1.25rem;
@@ -336,7 +413,7 @@ th {
   position: relative;
   isolation: isolate;
   background:
-    linear-gradient(180deg, rgba(255, 252, 240, 0.85) 0%, rgba(238, 230, 211, 0.75) 100%);
+    linear-gradient(180deg, var(--surface-deep) 0%, var(--surface-deeper) 100%);
   border: 1px solid var(--rule);
   border-radius: var(--radius-soft);
   box-shadow: var(--shadow-navy);
@@ -370,8 +447,8 @@ th {
 .paper-edge {
   border: 1px solid var(--rule);
   background:
-    linear-gradient(180deg, rgba(255,252,240,0.65) 0%, rgba(255,252,240,0.35) 100%);
+    linear-gradient(180deg, var(--surface-deep) 0%, var(--surface) 100%);
   box-shadow:
-    inset 0 0 0 1px rgba(255,252,240,0.4),
+    inset 0 0 0 1px var(--surface-deep),
     var(--shadow);
 }
