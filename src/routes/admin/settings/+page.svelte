@@ -7,6 +7,8 @@
   let titleEnabled = $state(data.settings.title_enabled);
   let titleModelId = $state<number | null>(data.settings.title_model_id);
   let titlePrompt = $state(data.settings.title_prompt);
+  let userDailyTokenLimit = $state(data.settings.user_daily_token_limit);
+  let historyWindow = $state(data.settings.history_window);
   let saving = $state(false);
   let saved = $state(false);
   let err = $state('');
@@ -21,7 +23,9 @@
         body: JSON.stringify({
           title_enabled: titleEnabled,
           title_model_id: titleModelId,
-          title_prompt: titlePrompt
+          title_prompt: titlePrompt,
+          user_daily_token_limit: userDailyTokenLimit,
+          history_window: historyWindow
         })
       });
       if (!res.ok) { err = await res.text(); return; }
@@ -68,6 +72,26 @@
     <label class="stack" style="gap: 0.3rem">
       <span class="small muted">Title prompt (system)</span>
       <textarea bind:value={titlePrompt} rows="5" disabled={!titleEnabled}></textarea>
+    </label>
+
+    <hr />
+
+    <h3>Usage limits</h3>
+    <label class="stack" style="gap: 0.3rem">
+      <span class="small muted">Per-user daily token limit</span>
+      <input type="number" min="0" step="1000" bind:value={userDailyTokenLimit} />
+      <span class="small muted italic">
+        Prompt + completion tokens each user may spend per UTC day. 0 = unlimited.
+      </span>
+    </label>
+
+    <label class="stack" style="gap: 0.3rem">
+      <span class="small muted">History window (messages per turn)</span>
+      <input type="number" min="0" step="1" bind:value={historyWindow} />
+      <span class="small muted italic">
+        Most recent messages sent to the model each turn. 0 = whole thread
+        (higher cost + latency on long chats).
+      </span>
     </label>
 
     <div class="row" style="justify-content: flex-end; gap: 0.6rem">

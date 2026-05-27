@@ -4,26 +4,24 @@ import {
 } from '$lib/server/repo';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ params, url }) => {
-  const userId = url.searchParams.get('userId');
-  if (!userId) throw error(400, 'userId required');
-  const conv = await getConversation(params.id, userId);
+export const GET: RequestHandler = async ({ params, locals }) => {
+  if (!locals.user) throw error(401, 'login required');
+  const conv = await getConversation(params.id, locals.user.id);
   if (!conv) throw error(404, 'not found');
   const messages = await listMessages(conv.id);
   return json({ conversation: conv, messages });
 };
 
-export const DELETE: RequestHandler = async ({ params, url }) => {
-  const userId = url.searchParams.get('userId');
-  if (!userId) throw error(400, 'userId required');
-  await deleteConversation(params.id, userId);
+export const DELETE: RequestHandler = async ({ params, locals }) => {
+  if (!locals.user) throw error(401, 'login required');
+  await deleteConversation(params.id, locals.user.id);
   return json({ ok: true });
 };
 
-export const PATCH: RequestHandler = async ({ params, request }) => {
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
+  if (!locals.user) throw error(401, 'login required');
+  const userId = locals.user.id;
   const body = await request.json().catch(() => ({}));
-  const userId: string = body?.userId;
-  if (!userId) throw error(400, 'userId required');
 
   // Title rename and/or folder move — either may be present.
   if (typeof body?.title === 'string' && body.title.trim()) {

@@ -4,7 +4,9 @@ import { sql } from './db';
 import { uuidv7 } from 'uuidv7';
 import type { ProviderConfig, ProviderKind } from './providers';
 
-export interface User { id: string; nickname: string; created_at: string; }
+export interface User { id: string; nickname: string; email: string | null; created_at: string; }
+/** User row including the password hash — server-internal, never sent to clients. */
+export interface UserWithSecret extends User { password_hash: string | null; }
 export type Provider = ProviderConfig;
 export interface Model {
   id: number; provider_id: number; model_id: string; label: string;
@@ -45,27 +47,67 @@ export interface Message {
 
 export const newId = () => uuidv7();
 
-export async function upsertUser(nickname: string, existingId?: string): Promise<User> {
-  const clean = nickname.trim().slice(0, 60);
-  if (!clean) throw new Error('nickname required');
-  if (existingId) {
-    const rows = await sql<User[]>`
-      update users set nickname = ${clean}
-      where id = ${existingId}
-      returning *
-    `;
-    if (rows[0]) return rows[0];
+// postgres-js (with prepare:false) hands jsonb back as a raw string rather than
+// a parsed value, so normalize defensively: accept an already-parsed array or a
+// JSON string, and fall back to [] on anything unexpected.
+function asJsonArray<T>(v: unknown): T[] {
+  if (Array.isArray(v)) return v as T[];
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
   }
+  return [];
+}
+
+function normalizeMessage(m: Message): Message {
+  return {
+    ...m,
+    attachments: asJsonArray<Attachment>(m.attachments),
+    sources: asJsonArray<Source>(m.sources)
+  };
+}
+
+export async function createUser(
+  email: string, nickname: string, passwordHash: string
+): Promise<User> {
   const id = newId();
   const rows = await sql<User[]>`
-    insert into users (id, nickname) values (${id}, ${clean}) returning *
+    insert into users (id, email, nickname, password_hash)
+    values (${id}, ${email}, ${nickname}, ${passwordHash})
+    returning id, email, nickname, created_at
   `;
   return rows[0];
 }
 
-export async function getUser(id: string): Promise<User | null> {
-  const rows = await sql<User[]>`select * from users where id = ${id}`;
+/** Look up a user by email (case-insensitive), including the password hash. */
+export async function getUserByEmail(email: string): Promise<UserWithSecret | null> {
+  const rows = await sql<UserWithSecret[]>`
+    select id, email, nickname, created_at, password_hash
+      from users where lower(email) = lower(${email})
+  `;
   return rows[0] ?? null;
+}
+
+export async function getUser(id: string): Promise<User | null> {
+  // Explicit columns: never leak password_hash into locals / page data.
+  const rows = await sql<User[]>`
+    select id, email, nickname, created_at from users where id = ${id}
+  `;
+  return rows[0] ?? null;
+}
+
+/** Sum of prompt+completion tokens this user has spent since UTC midnight. */
+export async function tokensUsedToday(userId: string): Promise<number> {
+  const rows = await sql<{ used: number }[]>`
+    select coalesce(sum(coalesce(prompt_tokens, 0) + coalesce(completion_tokens, 0)), 0)::int as used
+      from interactions
+     where user_id = ${userId} and ts >= date_trunc('day', now())
+  `;
+  return rows[0]?.used ?? 0;
 }
 
 export async function listEnabledModels(): Promise<Model[]> {
@@ -156,24 +198,34 @@ export interface Settings {
   title_enabled: boolean;
   title_model_id: number | null;
   title_prompt: string;
+  user_daily_token_limit: number;   // 0 = unlimited
+  history_window: number;           // 0 = full history
 }
 
 export async function getSettings(): Promise<Settings> {
   const rows = await sql<Settings[]>`
-    select title_enabled, title_model_id, title_prompt from settings where id = 1
+    select title_enabled, title_model_id, title_prompt,
+           user_daily_token_limit, history_window
+      from settings where id = 1
   `;
-  return rows[0] ?? { title_enabled: true, title_model_id: null, title_prompt: '' };
+  return rows[0] ?? {
+    title_enabled: true, title_model_id: null, title_prompt: '',
+    user_daily_token_limit: 0, history_window: 20
+  };
 }
 
 export async function updateSettings(s: Partial<Settings>): Promise<Settings> {
   const rows = await sql<Settings[]>`
     update settings set
-      title_enabled  = coalesce(${s.title_enabled ?? null}, title_enabled),
-      title_model_id = ${'title_model_id' in s ? s.title_model_id ?? null : sql`title_model_id`},
-      title_prompt   = coalesce(${s.title_prompt ?? null}, title_prompt),
-      updated_at     = now()
+      title_enabled          = coalesce(${s.title_enabled ?? null}, title_enabled),
+      title_model_id         = ${'title_model_id' in s ? s.title_model_id ?? null : sql`title_model_id`},
+      title_prompt           = coalesce(${s.title_prompt ?? null}, title_prompt),
+      user_daily_token_limit = coalesce(${s.user_daily_token_limit ?? null}, user_daily_token_limit),
+      history_window         = coalesce(${s.history_window ?? null}, history_window),
+      updated_at             = now()
     where id = 1
-    returning title_enabled, title_model_id, title_prompt
+    returning title_enabled, title_model_id, title_prompt,
+              user_daily_token_limit, history_window
   `;
   return rows[0];
 }
@@ -267,11 +319,12 @@ export async function deleteFolder(id: string, userId: string): Promise<void> {
 }
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
-  return sql<Message[]>`
+  const rows = await sql<Message[]>`
     select * from messages
     where conversation_id = ${conversationId}
     order by created_at asc
   `;
+  return rows.map(normalizeMessage);
 }
 
 export async function addMessage(
@@ -300,7 +353,7 @@ export async function addMessage(
     returning *
   `;
   await sql`update conversations set updated_at = now() where id = ${conversationId}`;
-  return rows[0];
+  return normalizeMessage(rows[0]);
 }
 
 export interface InteractionLog {

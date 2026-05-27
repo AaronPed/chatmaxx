@@ -2,18 +2,17 @@ import { json, error } from '@sveltejs/kit';
 import { renameFolder, deleteFolder } from '$lib/server/repo';
 import type { RequestHandler } from './$types';
 
-export const PATCH: RequestHandler = async ({ params, request }) => {
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
+  if (!locals.user) throw error(401, 'login required');
   const body = await request.json().catch(() => ({}));
-  const userId: string = body?.userId;
   const name: string = body?.name;
-  if (!userId || !name?.trim()) throw error(400, 'userId and name required');
-  await renameFolder(params.id, userId, name);
+  if (!name?.trim()) throw error(400, 'name required');
+  await renameFolder(params.id, locals.user.id, name);
   return json({ ok: true });
 };
 
-export const DELETE: RequestHandler = async ({ params, url }) => {
-  const userId = url.searchParams.get('userId');
-  if (!userId) throw error(400, 'userId required');
-  await deleteFolder(params.id, userId);
+export const DELETE: RequestHandler = async ({ params, locals }) => {
+  if (!locals.user) throw error(401, 'login required');
+  await deleteFolder(params.id, locals.user.id);
   return json({ ok: true });
 };

@@ -19,31 +19,40 @@ if (!url) {
 
 const sql = postgres(url, { max: 1, prepare: false });
 
-async function main() {
-  await sql`
-    create table if not exists __migrations (
-      filename text primary key,
-      applied_at timestamptz not null default now()
-    )
-  `;
-  const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
-  const applied = new Set(
-    (await sql`select filename from __migrations`).map((r) => r.filename)
-  );
+// Session-level advisory lock so two app instances starting at once can't both
+// run migrations (the key is arbitrary but must be stable across deploys).
+const MIGRATION_LOCK_KEY = 827_342_001;
 
-  for (const f of files) {
-    if (applied.has(f)) {
-      console.log(`= ${f} (already applied)`);
-      continue;
+async function main() {
+  await sql`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`;
+  try {
+    await sql`
+      create table if not exists __migrations (
+        filename text primary key,
+        applied_at timestamptz not null default now()
+      )
+    `;
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
+    const applied = new Set(
+      (await sql`select filename from __migrations`).map((r) => r.filename)
+    );
+
+    for (const f of files) {
+      if (applied.has(f)) {
+        console.log(`= ${f} (already applied)`);
+        continue;
+      }
+      const body = await readFile(join(dir, f), 'utf8');
+      console.log(`+ ${f}`);
+      await sql.begin(async (tx) => {
+        await tx.unsafe(body);
+        await tx`insert into __migrations (filename) values (${f})`;
+      });
     }
-    const body = await readFile(join(dir, f), 'utf8');
-    console.log(`+ ${f}`);
-    await sql.begin(async (tx) => {
-      await tx.unsafe(body);
-      await tx`insert into __migrations (filename) values (${f})`;
-    });
+    console.log('migrations complete');
+  } finally {
+    await sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`;
   }
-  console.log('migrations complete');
 }
 
 main()

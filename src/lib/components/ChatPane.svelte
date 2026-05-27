@@ -195,7 +195,7 @@
         signal: abortCtl.signal,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          userId: user.id, conversationId: cid, content,
+          conversationId: cid, content,
           attachments: attachmentsToSend,
           enabledTools: toolsToSend
         })
@@ -224,7 +224,7 @@
       // text stream. If a source-producing tool ran, pull them in after the fact.
       if (toolsToSend.includes('web_search')) {
         try {
-          const r = await fetch(`/api/conversations/${cid}?userId=${encodeURIComponent(user.id)}`);
+          const r = await fetch(`/api/conversations/${cid}`);
           if (r.ok) {
             const data = await r.json();
             const last = [...data.messages].reverse()
@@ -247,7 +247,7 @@
         fetch(`/api/conversations/${cid}/autotitle`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ userId: user.id })
+          body: '{}'
         })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { if (d?.title) onTitleChange(cid!, d.title, false); })
@@ -255,21 +255,10 @@
       }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') {
-        // User pressed stop. Persist whatever we received so the message
-        // survives a page reload, marked as stopped.
+        // User pressed stop. The server persists the partial (with a
+        // "(stopped)" marker) on its side, so we only update local UI here.
         assistantMsg.pending = false;
         assistantMsg.stopped = true;
-        if (assistantMsg.content) {
-          fetch(`/api/conversations/${cid}/messages`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              userId: user.id,
-              role: 'assistant',
-              content: assistantMsg.content + '\n\n_(stopped)_'
-            })
-          }).catch(() => {});
-        }
         messages = [...messages];
       } else {
         assistantMsg.content = '⚠ network error';

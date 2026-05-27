@@ -14,7 +14,14 @@
         body: JSON.stringify({ password })
       });
       if (!res.ok) {
-        err = res.status === 401 ? 'Wrong password.' : 'Login failed.';
+        if (res.status === 401) {
+          err = 'Wrong password.';
+        } else {
+          // 429 lockout (or other) — show the server's message.
+          let msg = 'Login failed.';
+          try { const d = await res.json(); if (d?.message) msg = d.message; } catch {}
+          err = msg;
+        }
         return;
       }
       window.location.href = '/admin';
