@@ -243,10 +243,15 @@
 
 <section class="chat">
   <div class="scroll" bind:this={scrollEl}>
+    {#if messages.length === 0}
+      <!-- Sparkles fill the entire scroll area so they aren't clipped to a
+           small box behind the heading. pointer-events:none on the layer
+           keeps clicks reaching the composer / sidebar untouched. -->
+      <Sparkles count={70} />
+    {/if}
     <div class="thread">
       {#if messages.length === 0}
         <div class="welcome">
-          <Sparkles count={40} />
           <h1 class="italic">What's on your mind{greetName ? `, ${greetName}` : ''}?</h1>
           <p class="muted">Pick a model below and write. <code>Enter</code> sends, <code>Shift+Enter</code> for newlines.</p>
         </div>
@@ -384,7 +389,12 @@
     flex: 1;
     overflow-y: auto;
     padding: 1.5rem 1.5rem 0.6rem;
+    /* Positioning context for the empty-state sparkle layer so it can fill
+       the whole reading area, not the tiny welcome heading. */
+    position: relative;
+    isolation: isolate;
   }
+  .scroll > :global(.thread) { position: relative; z-index: 2; }
   .thread {
     max-width: 760px;
     margin: 0 auto;
@@ -394,12 +404,9 @@
     padding-bottom: 1rem;
   }
   .welcome {
-    position: relative;
     text-align: center;
     padding: 4rem 1rem 2rem;
-    isolation: isolate;
   }
-  .welcome > h1, .welcome > p { position: relative; z-index: 2; }
   .msg .role { margin-bottom: 0.25rem; }
   .msg.user .body {
     background: var(--user-bubble);
