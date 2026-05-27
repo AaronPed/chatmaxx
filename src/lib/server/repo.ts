@@ -16,9 +16,14 @@ export interface ModelWithProvider extends Model {
   provider: Provider;
 }
 export interface SystemPrompt { id: number; name: string; content: string; }
+export interface Folder {
+  id: string; user_id: string; name: string;
+  sort_order: number; created_at: string;
+}
 export interface Conversation {
   id: string; user_id: string; title: string;
   model_id: number | null; system_prompt_id: number | null;
+  folder_id: string | null;
   created_at: string; updated_at: string;
 }
 export interface Attachment {
@@ -182,6 +187,55 @@ export async function renameConversation(id: string, userId: string, title: stri
     update conversations set title = ${title.slice(0, 200)}, updated_at = now()
     where id = ${id} and user_id = ${userId}
   `;
+}
+
+/** Move a conversation into a folder (or out of one when folderId is null). */
+export async function moveConversation(
+  id: string, userId: string, folderId: string | null
+): Promise<void> {
+  if (folderId) {
+    // Guard: the folder must belong to the same user.
+    const owns = await sql<{ id: string }[]>`
+      select id from folders where id = ${folderId} and user_id = ${userId}
+    `;
+    if (!owns[0]) throw new Error('folder not found');
+  }
+  await sql`
+    update conversations set folder_id = ${folderId}
+    where id = ${id} and user_id = ${userId}
+  `;
+}
+
+// ---- folders ----
+
+export async function listFolders(userId: string): Promise<Folder[]> {
+  return sql<Folder[]>`
+    select * from folders where user_id = ${userId}
+    order by sort_order asc, lower(name) asc
+  `;
+}
+
+export async function createFolder(userId: string, name: string): Promise<Folder> {
+  const clean = name.trim().slice(0, 80) || 'New folder';
+  const id = newId();
+  const rows = await sql<Folder[]>`
+    insert into folders (id, user_id, name) values (${id}, ${userId}, ${clean})
+    returning *
+  `;
+  return rows[0];
+}
+
+export async function renameFolder(id: string, userId: string, name: string): Promise<void> {
+  const clean = name.trim().slice(0, 80);
+  if (!clean) throw new Error('name required');
+  await sql`
+    update folders set name = ${clean} where id = ${id} and user_id = ${userId}
+  `;
+}
+
+export async function deleteFolder(id: string, userId: string): Promise<void> {
+  // ON DELETE SET NULL unfiles the conversations automatically.
+  await sql`delete from folders where id = ${id} and user_id = ${userId}`;
 }
 
 export async function listMessages(conversationId: string): Promise<Message[]> {

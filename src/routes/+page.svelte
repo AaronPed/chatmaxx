@@ -12,7 +12,11 @@
     api_style?: 'chat' | 'responses';
     available_tools?: ToolDescriptor[];
   }
-  interface ConvSummary { id: string; title: string; updated_at: string; model_id: number | null; }
+  interface ConvSummary {
+    id: string; title: string; updated_at: string;
+    model_id: number | null; folder_id: string | null;
+  }
+  interface FolderSummary { id: string; name: string; sort_order: number; }
   interface UIAttachment { name: string; mime_type: string; data_url: string; size: number; }
   interface UISource { url: string; title: string; }
   interface UIMessage {
@@ -24,6 +28,7 @@
   let user = $state<ClientUser | null>(null);
   let models = $state<Model[]>([]);
   let conversations = $state<ConvSummary[]>([]);
+  let folders = $state<FolderSummary[]>([]);
   let activeId = $state<string | null>(null);
   let activeMessages = $state<UIMessage[]>([]);
   let selectedModelId = $state<number | null>(null);
@@ -38,12 +43,15 @@
 
   async function refresh() {
     if (!user) return;
-    const [mRes, cRes] = await Promise.all([
+    const uid = encodeURIComponent(user.id);
+    const [mRes, cRes, fRes] = await Promise.all([
       fetch('/api/models').then((r) => r.json()),
-      fetch(`/api/conversations?userId=${encodeURIComponent(user.id)}`).then((r) => r.json())
+      fetch(`/api/conversations?userId=${uid}`).then((r) => r.json()),
+      fetch(`/api/folders?userId=${uid}`).then((r) => r.json())
     ]);
     models = mRes;
     conversations = cRes;
+    folders = fRes;
     if (!selectedModelId && models[0]) selectedModelId = models[0].id;
   }
 
@@ -80,7 +88,10 @@
     });
     if (!res.ok) throw new Error(await res.text());
     const conv = await res.json();
-    conversations = [{ id: conv.id, title: conv.title, updated_at: conv.updated_at, model_id: conv.model_id }, ...conversations];
+    conversations = [
+      { id: conv.id, title: conv.title, updated_at: conv.updated_at, model_id: conv.model_id, folder_id: conv.folder_id ?? null },
+      ...conversations
+    ];
     activeId = conv.id;
     return conv.id;
   }
@@ -110,8 +121,53 @@
     clearUser();
     user = null;
     conversations = [];
+    folders = [];
     activeId = null;
     activeMessages = [];
+  }
+
+  // ---- folders ----
+  async function createFolder() {
+    if (!user) return;
+    const name = prompt('Folder name?', 'New folder');
+    if (name === null) return;
+    const res = await fetch('/api/folders', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, name: name.trim() || 'New folder' })
+    });
+    if (!res.ok) return;
+    const f = await res.json();
+    folders = [...folders, { id: f.id, name: f.name, sort_order: f.sort_order }];
+  }
+
+  function renameFolder(id: string, name: string) {
+    folders = folders.map((f) => (f.id === id ? { ...f, name } : f));
+    if (!user) return;
+    fetch(`/api/folders/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, name })
+    }).catch(() => {});
+  }
+
+  async function deleteFolder(id: string) {
+    if (!user) return;
+    if (!confirm('Delete this folder? Its conversations move to Unfiled.')) return;
+    await fetch(`/api/folders/${id}?userId=${encodeURIComponent(user.id)}`, { method: 'DELETE' });
+    folders = folders.filter((f) => f.id !== id);
+    // Unfile any conversations that pointed at it.
+    conversations = conversations.map((c) => (c.folder_id === id ? { ...c, folder_id: null } : c));
+  }
+
+  function moveConversation(convId: string, folderId: string | null) {
+    conversations = conversations.map((c) => (c.id === convId ? { ...c, folder_id: folderId } : c));
+    if (!user) return;
+    fetch(`/api/conversations/${convId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, folderId })
+    }).catch(() => {});
   }
 </script>
 
@@ -126,11 +182,16 @@
     <Sidebar
       {user}
       {conversations}
+      {folders}
       {activeId}
       onSelect={openConversation}
       onNew={newConversation}
       onDelete={deleteConversation}
       onSignOut={signOut}
+      onNewFolder={createFolder}
+      onRenameFolder={renameFolder}
+      onDeleteFolder={deleteFolder}
+      onMoveConversation={moveConversation}
     />
     <ChatPane
       {user}

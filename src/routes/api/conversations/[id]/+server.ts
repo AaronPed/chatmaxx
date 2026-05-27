@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import {
-  getConversation, listMessages, deleteConversation, renameConversation
+  getConversation, listMessages, deleteConversation, renameConversation, moveConversation
 } from '$lib/server/repo';
 import type { RequestHandler } from './$types';
 
@@ -23,8 +23,22 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 export const PATCH: RequestHandler = async ({ params, request }) => {
   const body = await request.json().catch(() => ({}));
   const userId: string = body?.userId;
-  const title: string = body?.title;
-  if (!userId || !title) throw error(400, 'userId and title required');
-  await renameConversation(params.id, userId, title);
+  if (!userId) throw error(400, 'userId required');
+
+  // Title rename and/or folder move — either may be present.
+  if (typeof body?.title === 'string' && body.title.trim()) {
+    await renameConversation(params.id, userId, body.title);
+  }
+  if ('folderId' in body) {
+    const folderId: string | null = body.folderId ?? null;
+    try {
+      await moveConversation(params.id, userId, folderId);
+    } catch {
+      throw error(404, 'folder not found');
+    }
+  }
+  if (!('title' in body) && !('folderId' in body)) {
+    throw error(400, 'nothing to update');
+  }
   return json({ ok: true });
 };
