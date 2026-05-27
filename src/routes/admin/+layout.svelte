@@ -8,7 +8,8 @@
     { href: '/admin', label: 'Dashboard' },
     { href: '/admin/providers', label: 'Providers' },
     { href: '/admin/models', label: 'Models' },
-    { href: '/admin/prompts', label: 'System prompts' }
+    { href: '/admin/prompts', label: 'System prompts' },
+    { href: '/admin/settings', label: 'Settings' }
   ];
 
   let theme = $state<'light' | 'dark'>(currentTheme());

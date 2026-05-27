@@ -150,6 +150,34 @@ export async function listSystemPrompts(): Promise<SystemPrompt[]> {
   return sql<SystemPrompt[]>`select * from system_prompts order by name asc`;
 }
 
+// ---- global settings (singleton row) ----
+
+export interface Settings {
+  title_enabled: boolean;
+  title_model_id: number | null;
+  title_prompt: string;
+}
+
+export async function getSettings(): Promise<Settings> {
+  const rows = await sql<Settings[]>`
+    select title_enabled, title_model_id, title_prompt from settings where id = 1
+  `;
+  return rows[0] ?? { title_enabled: true, title_model_id: null, title_prompt: '' };
+}
+
+export async function updateSettings(s: Partial<Settings>): Promise<Settings> {
+  const rows = await sql<Settings[]>`
+    update settings set
+      title_enabled  = coalesce(${s.title_enabled ?? null}, title_enabled),
+      title_model_id = ${'title_model_id' in s ? s.title_model_id ?? null : sql`title_model_id`},
+      title_prompt   = coalesce(${s.title_prompt ?? null}, title_prompt),
+      updated_at     = now()
+    where id = 1
+    returning title_enabled, title_model_id, title_prompt
+  `;
+  return rows[0];
+}
+
 export async function listConversations(userId: string): Promise<Conversation[]> {
   return sql<Conversation[]>`
     select * from conversations

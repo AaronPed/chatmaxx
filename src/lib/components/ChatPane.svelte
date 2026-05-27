@@ -39,7 +39,7 @@
     selectedModelId: number | null;
     initialMessages: UIMessage[];
     onConversationStart: (modelId: number) => Promise<string>;
-    onTitleChange: (id: string, title: string) => void;
+    onTitleChange: (id: string, title: string, persist?: boolean) => void;
   } = $props();
 
   // Rotating welcome aliases. Picked fresh whenever the user lands on an
@@ -237,10 +237,21 @@
         } catch { /* sources are best-effort */ }
       }
 
-      // Seed the title from the first user prompt on the first exchange.
+      // First exchange → name the chat. Show a first-line placeholder instantly
+      // (local only), then ask the server's titler model for a better name.
+      // The /autotitle endpoint persists the result (with its own fallback), so
+      // we only update local state here to avoid a write race.
       if (messages.filter((m) => m.role === 'assistant' && !m.pending).length === 1) {
-        const title = content.split('\n')[0].slice(0, 80) || 'New conversation';
-        onTitleChange(cid, title);
+        const placeholder = content.split('\n')[0].slice(0, 80) || 'New conversation';
+        onTitleChange(cid, placeholder, false);
+        fetch(`/api/conversations/${cid}/autotitle`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ userId: user.id })
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (d?.title) onTitleChange(cid!, d.title, false); })
+          .catch(() => {});
       }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') {

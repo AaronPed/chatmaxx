@@ -107,9 +107,11 @@
     }
   }
 
-  function patchTitle(id: string, title: string) {
+  function patchTitle(id: string, title: string, persist = true) {
     conversations = conversations.map((c) => (c.id === id ? { ...c, title } : c));
-    if (!user) return;
+    // persist=false: the title was already saved server-side (e.g. by the
+    // /autotitle endpoint); just sync the sidebar label.
+    if (!user || !persist) return;
     fetch(`/api/conversations/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },

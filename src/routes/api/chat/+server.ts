@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { streamText, type ModelMessage } from 'ai';
 import {
   getConversation, listMessages, addMessage,
-  getModelWithProvider, getSystemPrompt, logInteraction, renameConversation,
+  getModelWithProvider, getSystemPrompt, logInteraction,
   type Attachment, type Source
 } from '$lib/server/repo';
 import {
@@ -142,10 +142,8 @@ export const POST: RequestHandler = async (event) => {
           completionTokens: usage?.outputTokens,
           latencyMs: Date.now() - t0
         });
-        if (history.filter((h) => h.role === 'assistant').length === 0) {
-          const title = content.split('\n')[0].trim().slice(0, 80) || 'New conversation';
-          await renameConversation(conversationId, userId, title);
-        }
+        // Titling is handled by the client calling /autotitle after the first
+        // exchange (so the LLM-generated name can replace the placeholder).
       } catch (e) {
         console.error('[chat] persistence failed', e);
       }
