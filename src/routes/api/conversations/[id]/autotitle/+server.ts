@@ -26,10 +26,9 @@ function cleanTitle(raw: string): string {
     .trim();
 }
 
-export const POST: RequestHandler = async ({ params, request }) => {
-  const body = await request.json().catch(() => ({}));
-  const userId: string = body?.userId;
-  if (!userId) throw error(400, 'userId required');
+export const POST: RequestHandler = async ({ params, locals }) => {
+  if (!locals.user) throw error(401, 'login required');
+  const userId = locals.user.id;
 
   const conv = await getConversation(params.id, userId);
   if (!conv) throw error(404, 'conversation not found');

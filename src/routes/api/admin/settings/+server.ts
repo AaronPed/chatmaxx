@@ -24,6 +24,20 @@ export const PATCH: RequestHandler = async ({ request }) => {
     }
     patch.title_model_id = id;
   }
+  if ('user_daily_token_limit' in b) {
+    const n = Number(b.user_daily_token_limit);
+    if (!Number.isInteger(n) || n < 0) {
+      throw error(400, 'user_daily_token_limit must be a non-negative integer');
+    }
+    patch.user_daily_token_limit = n;
+  }
+  if ('history_window' in b) {
+    const n = Number(b.history_window);
+    if (!Number.isInteger(n) || n < 0) {
+      throw error(400, 'history_window must be a non-negative integer');
+    }
+    patch.history_window = n;
+  }
   if (Object.keys(patch).length === 0) throw error(400, 'nothing to update');
   return json(await updateSettings(patch));
 };

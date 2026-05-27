@@ -16,6 +16,14 @@ docker compose up --build
 
 Migrations run automatically on container start.
 
+## Accounts
+
+End users sign in with **email + username + password** (self-service register /
+sign-in on the landing screen). Passwords are scrypt-hashed; the session is an
+httpOnly cookie, and every conversation/folder API call is scoped to the
+signed-in user server-side. There's no email verification yet — that's a future
+add-on. The `/admin` area is separate, protected by `ADMIN_PASSWORD`.
+
 ## Configure models
 
 Sign in to `/admin`, open **Models**, enable the ones whose keys you've set, and
@@ -55,9 +63,9 @@ src/
     admin/                  # admin pages (protected by hook)
     api/                    # JSON + streaming endpoints
   lib/
-    components/             # NicknameGate, Sidebar, ChatPane
-    server/                 # db, repo, providers, admin-auth, request-meta
-    client/                 # session (localStorage)
+    components/             # AuthGate, Sidebar, ChatPane
+    server/                 # db, repo, providers, admin-auth, user-auth, request-meta
+    client/                 # session (auth helpers)
     styles/global.css       # paper palette + grainy noise overlay
 migrations/                 # ordered *.sql files (idempotent)
 scripts/migrate.mjs         # tiny ordered-file migrator
@@ -68,5 +76,13 @@ docker/entrypoint.sh        # waits for db, runs migrations, then starts app
 
 Each chat turn writes a row to `interactions` with a hashed-IP fingerprint
 (`ip_hash` = sha256 of `IP_HASH_SALT + ip`, truncated), user agent, country
-header (if any), referer, model, latency, and token usage. The admin dashboard
+header (if any), referer, model, latency, and token usage. Failed turns are
+recorded too (`status = 'error'` with the message). The admin dashboard
 aggregates these.
+
+## Limits (admin → Settings)
+
+- **Per-user daily token limit** — prompt+completion tokens each user may spend
+  per UTC day (0 = unlimited). Enforced before each turn.
+- **History window** — how many recent messages are sent to the model per turn
+  (default 20; 0 = the whole thread). Keeps cost/latency bounded on long chats.

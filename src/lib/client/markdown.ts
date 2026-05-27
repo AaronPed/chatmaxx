@@ -82,21 +82,37 @@ function imgSrcAllowed(src: string): boolean {
   }
 }
 
+// Small memo cache: during streaming a message re-renders on every chunk and
+// every prior (stable) message re-renders too. Caching by exact text keeps the
+// thread from re-parsing identical content. Capped FIFO so it can't grow
+// unbounded across a long session.
+const renderCache = new Map<string, string>();
+const RENDER_CACHE_MAX = 300;
+
 export function renderMarkdown(text: string): string {
   if (typeof window === 'undefined') {
     // SSR — return the raw text inside a paragraph; the client will re-render
     // properly once hydrated. This avoids pulling in jsdom on the server.
     return escapeHtml(text);
   }
+  const cached = renderCache.get(text);
+  if (cached !== undefined) return cached;
+
   registerHooks();
   const html = marked.parse(text, { async: false }) as string;
-  return DOMPurify.sanitize(html, {
+  const clean = DOMPurify.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
     ALLOW_DATA_ATTR: false,
     ALLOWED_URI_REGEXP: /^(?:(?:https?:|mailto:|tel:|#|\/)|data:image\/)/i,
     FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'style', 'link', 'meta', 'form', 'input', 'button', 'svg', 'math']
   });
+
+  if (renderCache.size >= RENDER_CACHE_MAX) {
+    renderCache.delete(renderCache.keys().next().value!);
+  }
+  renderCache.set(text, clean);
+  return clean;
 }
 
 function escapeHtml(s: string): string {

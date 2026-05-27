@@ -18,10 +18,13 @@ RUN npm prune --omit=dev
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
+# BODY_SIZE_LIMIT must clear the chat attachment cap: 5 files × 5 MB of raw
+# image becomes ~33 MB once base64-encoded into the JSON body. 40 MiB leaves
+# headroom for the surrounding payload.
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
-    BODY_SIZE_LIMIT=10485760
+    BODY_SIZE_LIMIT=41943040
 
 # Copy build artifacts + runtime deps + migration assets.
 COPY --from=build /app/build ./build

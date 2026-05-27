@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { readUser, clearUser, type ClientUser } from '$lib/client/session';
-  import NicknameGate from '$lib/components/NicknameGate.svelte';
+  import { logout, type ClientUser } from '$lib/client/session';
+  import type { PageData } from './$types';
+  import AuthGate from '$lib/components/AuthGate.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import ChatPane from '$lib/components/ChatPane.svelte';
+
+  let { data }: { data: PageData } = $props();
 
   interface ToolDescriptor { id: string; label: string; description: string; }
   interface Model {
@@ -25,7 +28,7 @@
     sources?: UISource[];
   }
 
-  let user = $state<ClientUser | null>(null);
+  let user = $state<ClientUser | null>(data.user);
   let models = $state<Model[]>([]);
   let conversations = $state<ConvSummary[]>([]);
   let folders = $state<FolderSummary[]>([]);
@@ -34,20 +37,15 @@
   let selectedModelId = $state<number | null>(null);
 
   onMount(async () => {
-    const u = readUser();
-    if (u) {
-      user = u;
-      await refresh();
-    }
+    if (user) await refresh();
   });
 
   async function refresh() {
     if (!user) return;
-    const uid = encodeURIComponent(user.id);
     const [mRes, cRes, fRes] = await Promise.all([
       fetch('/api/models').then((r) => r.json()),
-      fetch(`/api/conversations?userId=${uid}`).then((r) => r.json()),
-      fetch(`/api/folders?userId=${uid}`).then((r) => r.json())
+      fetch('/api/conversations').then((r) => r.json()),
+      fetch('/api/folders').then((r) => r.json())
     ]);
     models = mRes;
     conversations = cRes;
@@ -58,7 +56,7 @@
   async function openConversation(id: string) {
     if (!user) return;
     activeId = id;
-    const res = await fetch(`/api/conversations/${id}?userId=${encodeURIComponent(user.id)}`);
+    const res = await fetch(`/api/conversations/${id}`);
     if (!res.ok) { activeId = null; activeMessages = []; return; }
     const data = await res.json();
     activeMessages = data.messages.map((m: {
@@ -84,7 +82,7 @@
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, modelId })
+      body: JSON.stringify({ modelId })
     });
     if (!res.ok) throw new Error(await res.text());
     const conv = await res.json();
@@ -99,7 +97,7 @@
   async function deleteConversation(id: string) {
     if (!user) return;
     if (!confirm('Delete this conversation?')) return;
-    await fetch(`/api/conversations/${id}?userId=${encodeURIComponent(user.id)}`, { method: 'DELETE' });
+    await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
     conversations = conversations.filter((c) => c.id !== id);
     if (activeId === id) {
       activeId = null;
@@ -115,12 +113,12 @@
     fetch(`/api/conversations/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, title })
+      body: JSON.stringify({ title })
     }).catch(() => {});
   }
 
-  function signOut() {
-    clearUser();
+  async function signOut() {
+    await logout();
     user = null;
     conversations = [];
     folders = [];
@@ -136,7 +134,7 @@
     const res = await fetch('/api/folders', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, name: name.trim() || 'New folder' })
+      body: JSON.stringify({ name: name.trim() || 'New folder' })
     });
     if (!res.ok) return;
     const f = await res.json();
@@ -149,14 +147,14 @@
     fetch(`/api/folders/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, name })
+      body: JSON.stringify({ name })
     }).catch(() => {});
   }
 
   async function deleteFolder(id: string) {
     if (!user) return;
     if (!confirm('Delete this folder? Its conversations move to Unfiled.')) return;
-    await fetch(`/api/folders/${id}?userId=${encodeURIComponent(user.id)}`, { method: 'DELETE' });
+    await fetch(`/api/folders/${id}`, { method: 'DELETE' });
     folders = folders.filter((f) => f.id !== id);
     // Unfile any conversations that pointed at it.
     conversations = conversations.map((c) => (c.folder_id === id ? { ...c, folder_id: null } : c));
@@ -168,7 +166,7 @@
     fetch(`/api/conversations/${convId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, folderId })
+      body: JSON.stringify({ folderId })
     }).catch(() => {});
   }
 </script>
@@ -178,7 +176,7 @@
 </svelte:head>
 
 {#if !user}
-  <NicknameGate onDone={async (u) => { user = u; await refresh(); }} />
+  <AuthGate onDone={async (u) => { user = u; await refresh(); }} />
 {:else}
   <div class="shell">
     <Sidebar
