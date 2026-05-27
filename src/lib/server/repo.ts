@@ -27,12 +27,14 @@ export interface Attachment {
   data_url: string;   // "data:image/png;base64,..."
   size: number;       // bytes (approx, of decoded payload)
 }
+export interface Source { url: string; title: string; }
 export interface Message {
   id: string; conversation_id: string;
   role: 'user' | 'assistant' | 'system';
   content: string; model_id: number | null;
   prompt_tokens: number | null; completion_tokens: number | null;
   attachments: Attachment[];
+  sources: Source[];
   created_at: string;
 }
 
@@ -199,17 +201,20 @@ export async function addMessage(
     promptTokens?: number;
     completionTokens?: number;
     attachments?: Attachment[];
+    sources?: Source[];
   } = {}
 ): Promise<Message> {
   const id = newId();
   const attachments = JSON.stringify(opts.attachments ?? []);
+  const sources = JSON.stringify(opts.sources ?? []);
   const rows = await sql<Message[]>`
     insert into messages
       (id, conversation_id, role, content, model_id,
-       prompt_tokens, completion_tokens, attachments)
+       prompt_tokens, completion_tokens, attachments, sources)
     values
       (${id}, ${conversationId}, ${role}, ${content}, ${opts.modelId ?? null},
-       ${opts.promptTokens ?? null}, ${opts.completionTokens ?? null}, ${attachments}::jsonb)
+       ${opts.promptTokens ?? null}, ${opts.completionTokens ?? null},
+       ${attachments}::jsonb, ${sources}::jsonb)
     returning *
   `;
   await sql`update conversations set updated_at = now() where id = ${conversationId}`;

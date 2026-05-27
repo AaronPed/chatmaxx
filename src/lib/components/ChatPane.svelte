@@ -4,15 +4,20 @@
   import Sparkles from '$lib/components/Sparkles.svelte';
   import { renderMarkdown } from '$lib/client/markdown';
 
+  interface ToolDescriptor { id: string; label: string; description: string; }
   interface Model {
     id: number; label: string;
     provider_name: string; provider_label: string; model_id: string;
+    api_style?: 'chat' | 'responses';
+    available_tools?: ToolDescriptor[];
   }
   interface UIAttachment { name: string; mime_type: string; data_url: string; size: number; }
+  interface UISource { url: string; title: string; }
   interface UIMessage {
     id: string; role: 'user' | 'assistant'; content: string;
     pending?: boolean; stopped?: boolean;
     attachments?: UIAttachment[];
+    sources?: UISource[];
   }
 
   const MAX_FILES = 5;
@@ -61,9 +66,29 @@
   let textareaEl: HTMLTextAreaElement | undefined = $state();
   let fileInputEl: HTMLInputElement | undefined = $state();
   let toolsOpen = $state(false);
+  let enabledTools = $state<string[]>([]);
   let pendingAttachments = $state<UIAttachment[]>([]);
   let attachErr = $state('');
   let abortCtl: AbortController | null = null;
+
+  const selectedModelTools = $derived(
+    models.find((m) => m.id === selectedModelId)?.available_tools ?? []
+  );
+
+  // Drop any enabled tools the (newly) selected model can't offer.
+  $effect(() => {
+    const ids = new Set(selectedModelTools.map((t) => t.id));
+    untrack(() => {
+      const filtered = enabledTools.filter((t) => ids.has(t));
+      if (filtered.length !== enabledTools.length) enabledTools = filtered;
+    });
+  });
+
+  function toggleTool(id: string) {
+    enabledTools = enabledTools.includes(id)
+      ? enabledTools.filter((t) => t !== id)
+      : [...enabledTools, id];
+  }
 
   // Reset messages when the parent swaps the conversation. We read
   // initialMessages here but mutate `messages`, which would re-trigger this
@@ -132,6 +157,7 @@
 
     sending = true;
     const attachmentsToSend = pendingAttachments;
+    const toolsToSend = [...enabledTools];
     input = '';
     pendingAttachments = [];
     attachErr = '';
@@ -170,7 +196,8 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           userId: user.id, conversationId: cid, content,
-          attachments: attachmentsToSend
+          attachments: attachmentsToSend,
+          enabledTools: toolsToSend
         })
       });
       if (!res.ok || !res.body) {
@@ -192,6 +219,23 @@
       }
       assistantMsg.pending = false;
       messages = [...messages];
+
+      // Sources (web search) are persisted server-side in onFinish, not in the
+      // text stream. If a source-producing tool ran, pull them in after the fact.
+      if (toolsToSend.includes('web_search')) {
+        try {
+          const r = await fetch(`/api/conversations/${cid}?userId=${encodeURIComponent(user.id)}`);
+          if (r.ok) {
+            const data = await r.json();
+            const last = [...data.messages].reverse()
+              .find((m: { role: string }) => m.role === 'assistant');
+            if (last?.sources?.length) {
+              assistantMsg.sources = last.sources;
+              messages = [...messages];
+            }
+          }
+        } catch { /* sources are best-effort */ }
+      }
 
       // Seed the title from the first user prompt on the first exchange.
       if (messages.filter((m) => m.role === 'assistant' && !m.pending).length === 1) {
@@ -279,6 +323,16 @@
                 <div class="body">{m.content}</div>
               {/if}
             {/if}
+            {#if m.role === 'assistant' && m.sources && m.sources.length > 0}
+              <div class="sources">
+                <div class="small italic muted">sources</div>
+                <ol>
+                  {#each m.sources as s (s.url)}
+                    <li><a href={s.url} target="_blank" rel="noopener noreferrer">{s.title || s.url}</a></li>
+                  {/each}
+                </ol>
+              </div>
+            {/if}
           {/if}
         </article>
       {/each}
@@ -333,18 +387,31 @@
             <button
               type="button"
               class="ghost small tools-toggle"
+              class:armed={enabledTools.length > 0}
               onclick={() => (toolsOpen = !toolsOpen)}
+              disabled={selectedModelTools.length === 0}
               aria-expanded={toolsOpen}
+              title={selectedModelTools.length === 0
+                ? 'this model has no tools (needs a Responses-API model)'
+                : 'tools'}
             >
-              tools <span class="caret">▾</span>
+              tools{enabledTools.length > 0 ? ` (${enabledTools.length})` : ''} <span class="caret">▾</span>
             </button>
-            {#if toolsOpen}
+            {#if toolsOpen && selectedModelTools.length > 0}
               <div class="tools-pop card">
-                <div class="small italic muted">No tools available for this model yet.</div>
-                <div class="small muted" style="margin-top: 0.3rem">
-                  Web search, code execution, image generation — coming once the chosen
-                  provider exposes them.
-                </div>
+                {#each selectedModelTools as t (t.id)}
+                  <label class="tool-row">
+                    <input
+                      type="checkbox"
+                      checked={enabledTools.includes(t.id)}
+                      onchange={() => toggleTool(t.id)}
+                    />
+                    <span>
+                      <span class="tool-label">{t.label}</span>
+                      <span class="small muted block">{t.description}</span>
+                    </span>
+                  </label>
+                {/each}
               </div>
             {/if}
           </div>
@@ -550,13 +617,42 @@
   .picker select:hover { border-color: var(--rule); }
   .picker select:focus { border-color: var(--navy); }
   .tools-toggle .caret { font-size: 0.8em; }
+  .tools-toggle.armed {
+    color: var(--accent);
+    border-color: var(--rule);
+    background: rgba(201, 168, 106, 0.16);
+  }
   .tools-pop {
     position: absolute;
     bottom: calc(100% + 0.4rem);
     left: 0;
-    width: 280px;
+    width: 300px;
     z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
+  .tool-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    cursor: pointer;
+  }
+  .tool-row input { margin-top: 0.25rem; }
+  .tool-label { font-style: italic; }
+  .block { display: block; }
+
+  .sources {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--rule);
+  }
+  .sources ol {
+    margin: 0.3rem 0 0;
+    padding-left: 1.3rem;
+  }
+  .sources li { margin: 0.15rem 0; }
+  .sources a { word-break: break-word; }
   .attach {
     font-size: 1.1rem;
     padding: 0.25em 0.55em;

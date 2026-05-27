@@ -16,7 +16,8 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
-import type { LanguageModelV1 } from 'ai';
+import type { LanguageModel, ToolSet } from 'ai';
+import { isToolId, type ToolId } from './tools';
 
 export type ProviderKind = 'anthropic' | 'google' | 'openai-compatible';
 export const PROVIDER_KINDS: ProviderKind[] = ['anthropic', 'google', 'openai-compatible'];
@@ -42,11 +43,25 @@ export class ProviderConfigError extends Error {
   }
 }
 
+type OpenAIClient = ReturnType<typeof createOpenAI>;
+
+/** Build a configured OpenAI-compatible client for a provider. */
+function openAiClient(provider: ProviderConfig): OpenAIClient {
+  if (!provider.base_url) {
+    throw new ProviderConfigError(`provider '${provider.name}' has no base_url`);
+  }
+  const apiKey = readKey(provider, false);
+  return createOpenAI({
+    apiKey: apiKey ?? 'unused',
+    baseURL: provider.base_url
+  });
+}
+
 export function getModel(
   provider: ProviderConfig,
   modelId: string,
   apiStyle: ApiStyle = 'chat'
-): LanguageModelV1 {
+): LanguageModel {
   if (provider.kind === 'anthropic') {
     const apiKey = readKey(provider, true);
     return createAnthropic({ apiKey })(modelId);
@@ -58,18 +73,7 @@ export function getModel(
   }
 
   // openai-compatible
-  if (!provider.base_url) {
-    throw new ProviderConfigError(`provider '${provider.name}' has no base_url`);
-  }
-  const apiKey = readKey(provider, false);
-  const client = createOpenAI({
-    apiKey: apiKey ?? 'unused',
-    baseURL: provider.base_url,
-    // 'strict' only on OpenAI itself — every other vendor advertises Chat
-    // Completions but tends to deviate in small ways.
-    compatibility: provider.name === 'openai' ? 'strict' : 'compatible'
-  });
-
+  const client = openAiClient(provider);
   if (apiStyle === 'responses') {
     if (!provider.supports_responses_api) {
       throw new ProviderConfigError(
@@ -79,6 +83,31 @@ export function getModel(
     return client.responses(modelId);
   }
   return client(modelId);
+}
+
+/**
+ * Build the streamText `tools` object for the enabled built-in tools.
+ * Only meaningful for OpenAI Responses models; returns undefined otherwise
+ * (or when nothing is enabled).
+ */
+export function buildTools(
+  provider: ProviderConfig,
+  apiStyle: ApiStyle,
+  enabledToolIds: string[]
+): ToolSet | undefined {
+  if (apiStyle !== 'responses' || enabledToolIds.length === 0) return undefined;
+  if (!(provider.kind === 'openai-compatible' && provider.name === 'openai')) return undefined;
+
+  const client = openAiClient(provider);
+  const tools: ToolSet = {};
+  for (const raw of enabledToolIds) {
+    if (!isToolId(raw)) continue;
+    const id: ToolId = raw;
+    if (id === 'web_search') tools.web_search = client.tools.webSearch({});
+    else if (id === 'code_interpreter') tools.code_interpreter = client.tools.codeInterpreter({});
+    else if (id === 'image_generation') tools.image_generation = client.tools.imageGeneration({});
+  }
+  return Object.keys(tools).length ? tools : undefined;
 }
 
 /** Pull the configured env var. If `required`, throws when absent. */

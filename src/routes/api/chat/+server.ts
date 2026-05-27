@@ -1,11 +1,14 @@
 import { error } from '@sveltejs/kit';
-import { streamText, type CoreMessage } from 'ai';
+import { streamText, type ModelMessage } from 'ai';
 import {
   getConversation, listMessages, addMessage,
   getModelWithProvider, getSystemPrompt, logInteraction, renameConversation,
-  type Attachment
+  type Attachment, type Source
 } from '$lib/server/repo';
-import { getModel as getProviderModel, ProviderConfigError } from '$lib/server/providers';
+import {
+  getModel as getProviderModel, buildTools, ProviderConfigError
+} from '$lib/server/providers';
+import { availableTools } from '$lib/server/tools';
 import { getMeta } from '$lib/server/request-meta';
 import type { RequestHandler } from './$types';
 
@@ -34,7 +37,6 @@ function sanitizeAttachments(raw: unknown): Attachment[] {
     if (!data_url.startsWith('data:')) {
       throw error(400, `attachment ${i}: must be a data URL`);
     }
-    // approx decoded size = base64 length * 3/4 (we trust client's reported size for cost)
     const b64 = data_url.split(',')[1] ?? '';
     const size = Math.floor((b64.length * 3) / 4);
     if (size > MAX_BYTES_PER_FILE) {
@@ -51,6 +53,9 @@ export const POST: RequestHandler = async (event) => {
   const conversationId: string = body?.conversationId;
   const content: string = (body?.content ?? '').toString();
   const attachments = sanitizeAttachments(body?.attachments);
+  const requestedTools: string[] = Array.isArray(body?.enabledTools)
+    ? body.enabledTools.map((t: unknown) => String(t))
+    : [];
   if (!userId || !conversationId || (!content.trim() && attachments.length === 0)) {
     throw error(400, 'userId, conversationId, and content or attachments required');
   }
@@ -61,8 +66,7 @@ export const POST: RequestHandler = async (event) => {
 
   const model = await getModelWithProvider(conv.model_id);
   if (!model) throw error(404, 'model not found');
-  // Conversation may have been created before a system prompt was attached;
-  // fall back through model → provider defaults at send time too.
+
   const systemPromptId =
     conv.system_prompt_id ??
     model.default_system_prompt_id ??
@@ -70,20 +74,23 @@ export const POST: RequestHandler = async (event) => {
     null;
   const systemPrompt = await getSystemPrompt(systemPromptId);
 
+  // Only allow tools the model actually supports.
+  const allowed = new Set(availableTools(model.provider, model.api_style).map((t) => t.id));
+  const enabledToolIds = requestedTools.filter((t) => allowed.has(t));
+
   // Persist user message (with attachments) + load full history for the model.
   await addMessage(conversationId, 'user', content, { attachments });
   const history = await listMessages(conversationId);
 
-  const messages: CoreMessage[] = [];
+  const messages: ModelMessage[] = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt.content });
   for (const m of history) {
     if (m.role === 'system') continue;
     if (m.role === 'user' && m.attachments && m.attachments.length > 0) {
-      // Mixed-content message: include the text first, then each image
-      // decoded to raw bytes (more portable than passing a data: URL).
+      // Mixed-content message: text first, then each image as raw bytes.
       const parts: Array<
         | { type: 'text'; text: string }
-        | { type: 'image'; image: Uint8Array; mimeType: string }
+        | { type: 'image'; image: Uint8Array; mediaType: string }
       > = [];
       if (m.content) parts.push({ type: 'text', text: m.content });
       for (const a of m.attachments) {
@@ -91,7 +98,7 @@ export const POST: RequestHandler = async (event) => {
         parts.push({
           type: 'image',
           image: new Uint8Array(Buffer.from(b64, 'base64')),
-          mimeType: a.mime_type
+          mediaType: a.mime_type
         });
       }
       messages.push({ role: 'user', content: parts });
@@ -108,27 +115,33 @@ export const POST: RequestHandler = async (event) => {
     throw e;
   }
 
+  const tools = buildTools(model.provider, model.api_style, enabledToolIds);
+
   const meta = getMeta(event);
   const t0 = Date.now();
-  const result = await streamText({
+  const result = streamText({
     model: languageModel,
     messages,
-    onFinish: async ({ text, usage }) => {
+    ...(tools ? { tools } : {}),
+    onFinish: async ({ text, usage, sources }) => {
       try {
+        const cited: Source[] = (sources ?? [])
+          .filter((s): s is Extract<typeof s, { sourceType: 'url' }> => s.sourceType === 'url')
+          .map((s) => ({ url: s.url, title: s.title || s.url }));
         await addMessage(conversationId, 'assistant', text, {
           modelId: conv.model_id,
-          promptTokens: usage?.promptTokens,
-          completionTokens: usage?.completionTokens
+          promptTokens: usage?.inputTokens,
+          completionTokens: usage?.outputTokens,
+          sources: cited
         });
         await logInteraction({
           userId, conversationId, modelId: conv.model_id,
           ...meta,
           status: 'ok',
-          promptTokens: usage?.promptTokens,
-          completionTokens: usage?.completionTokens,
+          promptTokens: usage?.inputTokens,
+          completionTokens: usage?.outputTokens,
           latencyMs: Date.now() - t0
         });
-        // Auto-title: first assistant reply → seed title from the user prompt.
         if (history.filter((h) => h.role === 'assistant').length === 0) {
           const title = content.split('\n')[0].trim().slice(0, 80) || 'New conversation';
           await renameConversation(conversationId, userId, title);

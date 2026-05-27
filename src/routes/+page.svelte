@@ -5,15 +5,20 @@
   import Sidebar from '$lib/components/Sidebar.svelte';
   import ChatPane from '$lib/components/ChatPane.svelte';
 
+  interface ToolDescriptor { id: string; label: string; description: string; }
   interface Model {
     id: number; label: string; model_id: string;
     provider_name: string; provider_label: string;
+    api_style?: 'chat' | 'responses';
+    available_tools?: ToolDescriptor[];
   }
   interface ConvSummary { id: string; title: string; updated_at: string; model_id: number | null; }
   interface UIAttachment { name: string; mime_type: string; data_url: string; size: number; }
+  interface UISource { url: string; title: string; }
   interface UIMessage {
     id: string; role: 'user' | 'assistant'; content: string;
     attachments?: UIAttachment[];
+    sources?: UISource[];
   }
 
   let user = $state<ClientUser | null>(null);
@@ -50,12 +55,13 @@
     const data = await res.json();
     activeMessages = data.messages.map((m: {
       id: string; role: string; content: string;
-      attachments?: UIAttachment[];
+      attachments?: UIAttachment[]; sources?: UISource[];
     }) => ({
       id: m.id,
       role: m.role as 'user' | 'assistant',
       content: m.content,
-      attachments: m.attachments && m.attachments.length > 0 ? m.attachments : undefined
+      attachments: m.attachments && m.attachments.length > 0 ? m.attachments : undefined,
+      sources: m.sources && m.sources.length > 0 ? m.sources : undefined
     }));
     if (data.conversation?.model_id) selectedModelId = data.conversation.model_id;
   }
