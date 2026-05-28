@@ -202,7 +202,7 @@
   .col-label    { width: 14rem; }
   .col-prompt   { width: 12rem; }
   .col-api      { width: 8rem; }
-  .col-sort     { width: 4rem; }
+  .col-sort     { width: 6rem; }
 
   @media (max-width: 760px) {
     .grid-form { grid-template-columns: 1fr 1fr; }

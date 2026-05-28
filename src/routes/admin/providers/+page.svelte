@@ -225,7 +225,7 @@
   .col-resp   { width: 5rem; text-align: center; }
   .col-prompt { width: 11rem; }
   .col-models { width: 4rem; }
-  .col-sort   { width: 4rem; }
+  .col-sort   { width: 6rem; }
 
   @media (max-width: 1000px) {
     .grid-form { grid-template-columns: 1fr 1fr; }
