@@ -182,10 +182,12 @@
       id: crypto.randomUUID(), role: 'user', content,
       attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined
     };
-    const assistantMsg: UIMessage = {
+    messages = [...messages, userMsg, {
       id: crypto.randomUUID(), role: 'assistant', content: '', pending: true
-    };
-    messages = [...messages, userMsg, assistantMsg];
+    }];
+    // Mutate the $state proxy, not the raw literal: writes to the raw object
+    // bypass Svelte's deep reactivity and streamed chunks would never render.
+    const assistantMsg = messages[messages.length - 1];
     scrollDown();
 
     abortCtl = new AbortController();
@@ -203,7 +205,6 @@
       if (!res.ok || !res.body) {
         assistantMsg.content = `⚠ ${await res.text().catch(() => 'request failed')}`;
         assistantMsg.pending = false;
-        messages = [...messages];
         return;
       }
       const reader = res.body.getReader();
@@ -214,11 +215,9 @@
         if (done) break;
         buf += decoder.decode(value, { stream: true });
         assistantMsg.content = buf;
-        messages = [...messages];
         scrollDown();
       }
       assistantMsg.pending = false;
-      messages = [...messages];
 
       // Sources (web search) are persisted server-side in onFinish, not in the
       // text stream. If a source-producing tool ran, pull them in after the fact.
@@ -231,7 +230,6 @@
               .find((m: { role: string }) => m.role === 'assistant');
             if (last?.sources?.length) {
               assistantMsg.sources = last.sources;
-              messages = [...messages];
             }
           }
         } catch { /* sources are best-effort */ }
@@ -259,11 +257,9 @@
         // "(stopped)" marker) on its side, so we only update local UI here.
         assistantMsg.pending = false;
         assistantMsg.stopped = true;
-        messages = [...messages];
       } else {
         assistantMsg.content = '⚠ network error';
         assistantMsg.pending = false;
-        messages = [...messages];
       }
     } finally {
       abortCtl = null;
