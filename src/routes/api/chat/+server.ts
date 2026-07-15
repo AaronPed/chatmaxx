@@ -157,12 +157,27 @@ export const POST: RequestHandler = async (event) => {
   const meta = getMeta(event);
   const t0 = Date.now();
 
+  // Persistence is claimed by exactly one path via `persisted`: the normal
+  // completion (onFinish) or the client-disconnect (stream `cancel`). They're
+  // mutually exclusive — whichever runs first sets the flag.
+  //
+  // We drive the provider call with our own AbortController rather than
+  // `request.signal`: under adapter-node the request signal does NOT fire on
+  // client disconnect (only the ReadableStream's `cancel` does), so relying on
+  // it would leave the upstream generation running and drop the partial.
+  const upstreamAbort = new AbortController();
+  if (request.signal.aborted) upstreamAbort.abort();
+  else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
+
+  let accumulated = '';
+  let clientGone = false;
+  let persisted = false;
+
   const result = streamText({
     model: languageModel,
     messages,
     ...(tools ? { tools } : {}),
-    // Cancel the upstream provider call if the client disconnects / presses stop.
-    abortSignal: request.signal,
+    abortSignal: upstreamAbort.signal,
     onError: ({ error: err }) => {
       if (isAbortError(err)) return;
       console.error('[chat] stream error', err);
@@ -173,9 +188,10 @@ export const POST: RequestHandler = async (event) => {
       }).catch(() => {});
     },
     onFinish: async ({ text, usage, sources }) => {
-      // If the client aborted, the partial is persisted by the stream loop's
-      // `finally` below. And don't write an empty row when a turn errored out.
-      if (request.signal.aborted || !text.trim()) return;
+      // Stopped turns are persisted by `cancel` below; empty turns (errored
+      // out) aren't worth a row.
+      if (clientGone || persisted || !text.trim()) return;
+      persisted = true;
       try {
         const cited: Source[] = (sources ?? [])
           .filter((s): s is Extract<typeof s, { sourceType: 'url' }> => s.sourceType === 'url')
@@ -199,15 +215,24 @@ export const POST: RequestHandler = async (event) => {
     }
   });
 
-  // Hand-rolled stream over fullStream so we can (a) surface a mid-stream
-  // provider error to the client inline — textStream swallows errors silently —
-  // and (b) persist the partial text exactly once when the user presses stop.
+  // Persist whatever streamed so far when the client stops/disconnects. Guarded
+  // by `persisted` so it can never double-write against onFinish.
+  const persistStoppedPartial = async () => {
+    if (persisted || !accumulated.trim()) return;
+    persisted = true;
+    await addMessage(conversationId, 'assistant', accumulated + '\n\n_(stopped)_', {
+      modelId: conv.model_id
+    }).catch((e) => console.error('[chat] stopped-partial persistence failed', e));
+  };
+
+  // Hand-rolled stream over fullStream so we can surface a mid-stream provider
+  // error to the client inline — textStream swallows errors silently.
   const encoder = new TextEncoder();
-  let accumulated = '';
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
         for await (const part of result.fullStream) {
+          if (clientGone) break;
           if (part.type === 'text-delta') {
             accumulated += part.text;
             controller.enqueue(encoder.encode(part.text));
@@ -216,22 +241,23 @@ export const POST: RequestHandler = async (event) => {
               encoder.encode(`${accumulated ? '\n\n' : ''}⚠ ${errMessage(part.error)}`)
             );
           }
-          // 'abort' parts end the stream; the finally block handles persistence.
         }
       } catch (err) {
-        if (!isAbortError(err)) {
-          controller.enqueue(encoder.encode(`${accumulated ? '\n\n' : ''}⚠ ${errMessage(err)}`));
+        if (!clientGone && !isAbortError(err)) {
+          try {
+            controller.enqueue(encoder.encode(`${accumulated ? '\n\n' : ''}⚠ ${errMessage(err)}`));
+          } catch { /* controller may already be torn down */ }
         }
       } finally {
-        // Client pressed stop / disconnected: persist whatever we have, once.
-        // onFinish is guarded against the aborted case so this is the sole write.
-        if (request.signal.aborted && accumulated.trim()) {
-          await addMessage(conversationId, 'assistant', accumulated + '\n\n_(stopped)_', {
-            modelId: conv.model_id
-          }).catch(() => {});
-        }
-        controller.close();
+        try { controller.close(); } catch { /* already closed by cancel */ }
       }
+    },
+    // Invoked by the platform when the client disconnects / presses stop. This
+    // is the reliable disconnect signal (request.signal is not).
+    async cancel() {
+      clientGone = true;
+      upstreamAbort.abort();      // stop the provider generation
+      await persistStoppedPartial();
     }
   });
 

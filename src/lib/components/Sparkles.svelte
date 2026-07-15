@@ -8,10 +8,15 @@
 
   let {
     count = 22,
-    palette = 'jewel'
+    palette = 'jewel',
+    // Edge-weight the horizontal spread and fade the centre column, so the
+    // reading area stays clear while the margins stay lively. The fade is a
+    // smooth gradient — no hard cutoff.
+    fadeCenter = false
   }: {
     count?: number;
     palette?: 'jewel' | 'gold' | 'navy' | 'coral';
+    fadeCenter?: boolean;
   } = $props();
 
   const PALETTES: Record<string, string[]> = {
@@ -23,12 +28,21 @@
 
   interface Spark { top: number; left: number; size: number; delay: number; dur: number; tint: string; }
 
+  // Horizontal position in [0,100]. When edge-weighting, push points away from
+  // the centre (50%): a [0,1) sample raised to a power <1 skews large, so the
+  // offset from centre skews toward its 50% max → more sparkles at the margins.
+  function xPos(edgeWeighted: boolean): number {
+    if (!edgeWeighted) return Math.random() * 100;
+    const offset = Math.pow(Math.random(), 0.5) * 50;
+    return Math.random() < 0.5 ? 50 - offset : 50 + offset;
+  }
+
   let sparks = $state<Spark[]>([]);
   function regenerate() {
     const colors = PALETTES[palette] ?? PALETTES.jewel;
     sparks = Array.from({ length: count }, (_, i) => ({
       top:   Math.random() * 100,
-      left:  Math.random() * 100,
+      left:  xPos(fadeCenter),
       size:  1.2 + Math.random() * 2.6,        // 1.2 – 3.8 px
       // 2× slower than before — durations 4–9s, delays 0–7s.
       delay: Math.random() * 7,
@@ -40,7 +54,7 @@
   onMount(regenerate);
 </script>
 
-<div class="sparkles" aria-hidden="true">
+<div class="sparkles" class:fade={fadeCenter} aria-hidden="true">
   {#each sparks as s}
     <span
       class="spark"
@@ -65,6 +79,24 @@
     pointer-events: none;
     overflow: hidden;
     z-index: 0;
+  }
+  /* Soft horizontal falloff: full at the margins, thinned through the centre
+     reading column. Gradient stops give a gentle transition, not a hard box. */
+  .sparkles.fade {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.1) 40%,
+      rgba(0, 0, 0, 0.1) 60%,
+      rgba(0, 0, 0, 1) 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.1) 40%,
+      rgba(0, 0, 0, 0.1) 60%,
+      rgba(0, 0, 0, 1) 100%
+    );
   }
   .spark {
     position: absolute;

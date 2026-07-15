@@ -82,7 +82,10 @@ export function getModel(
     }
     return client.responses(modelId);
   }
-  return client(modelId);
+  // Chat Completions. NB: the bare `client(modelId)` callable now defaults to
+  // the Responses API in @ai-sdk/openai v2, which most openai-compatible
+  // backends (Ollama, OpenRouter, DeepSeek, …) don't implement — so be explicit.
+  return client.chat(modelId);
 }
 
 /**

@@ -57,6 +57,9 @@
     if (!user) return;
     activeId = id;
     const res = await fetch(`/api/conversations/${id}`);
+    // A newer selection may have won the race while this fetch was in flight —
+    // if so, discard this (now stale) response rather than clobbering it.
+    if (activeId !== id) return;
     if (!res.ok) { activeId = null; activeMessages = []; return; }
     const data = await res.json();
     activeMessages = data.messages.map((m: {
