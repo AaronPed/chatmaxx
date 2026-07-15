@@ -17,15 +17,16 @@ Migrations run automatically on container start.
 
 ## Providers
 
-| Provider   | Env var                | Notes                                      |
-|------------|------------------------|--------------------------------------------|
-| Anthropic  | `ANTHROPIC_API_KEY`    | Native SDK                                 |
-| OpenAI     | `OPENAI_API_KEY`       |                                            |
-| OpenRouter | `OPENROUTER_API_KEY`   | One key, many models                       |
-| Cerebras   | `CEREBRAS_API_KEY`     | OpenAI-compatible                          |
-| Moonshot   | `MOONSHOT_API_KEY`     | OpenAI-compatible                          |
-| DeepSeek   | `DEEPSEEK_API_KEY`     | OpenAI-compatible                          |
-| Ollama     | _(none)_               | Set `OLLAMA_BASE_URL` if not on the host   |
+| Provider   | Env var                          | Notes                                    |
+|------------|----------------------------------|------------------------------------------|
+| Anthropic  | `ANTHROPIC_API_KEY`              | Native SDK                               |
+| OpenAI     | `OPENAI_API_KEY`                 | Chat + Responses API (tools)             |
+| Google     | `GOOGLE_GENERATIVE_AI_API_KEY`   | Native SDK (Gemini)                      |
+| OpenRouter | `OPENROUTER_API_KEY`             | One key, many models                     |
+| Cerebras   | `CEREBRAS_API_KEY`               | OpenAI-compatible                        |
+| Moonshot   | `MOONSHOT_API_KEY`               | OpenAI-compatible                        |
+| DeepSeek   | `DEEPSEEK_API_KEY`               | OpenAI-compatible                        |
+| Ollama     | _(none)_                         | Set `OLLAMA_BASE_URL` if not on the host |
 
 ## Local development (without Docker)
 
@@ -47,9 +48,10 @@ src/
     admin/                  # admin pages (protected by hook)
     api/                    # JSON + streaming endpoints
   lib/
-    components/             # AuthGate, Sidebar, ChatPane
-    server/                 # db, repo, providers, admin-auth, user-auth, request-meta
-    client/                 # session (auth helpers)
+    components/             # AuthGate, Sidebar, ChatPane, Sparkles, LineChart
+    server/                 # db, repo, providers, tools, admin-auth, user-auth,
+                            #   login-throttle, request-meta
+    client/                 # session (auth), markdown (render pipeline), theme
     styles/global.css       # paper palette + grainy noise overlay
 migrations/                 # ordered *.sql files (idempotent)
 scripts/migrate.mjs         # tiny ordered-file migrator
