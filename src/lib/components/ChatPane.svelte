@@ -95,12 +95,25 @@
   // effect — `untrack` keeps the loop from forming.
   $effect(() => {
     const incoming = initialMessages;
-    untrack(() => { messages = [...incoming]; });
+    untrack(() => {
+      // Abort any stream still running for the thread we're leaving, so it
+      // stops writing into a now-detached message and unlocks the composer.
+      abortCtl?.abort();
+      messages = [...incoming];
+    });
   });
 
-  async function scrollDown() {
+  // Is the viewport already parked at (or very near) the bottom? Used to decide
+  // whether streamed tokens should keep the view pinned. If the user has
+  // scrolled up to read earlier content, we leave them be.
+  function isNearBottom(): boolean {
+    if (!scrollEl) return true;
+    return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 120;
+  }
+
+  async function scrollDown(behavior: ScrollBehavior = 'smooth') {
     await tick();
-    scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' });
+    scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior });
   }
 
   function autosize() {
@@ -213,9 +226,11 @@
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        // Check stickiness *before* the DOM grows from this chunk.
+        const stick = isNearBottom();
         buf += decoder.decode(value, { stream: true });
         assistantMsg.content = buf;
-        scrollDown();
+        if (stick) scrollDown('auto');
       }
       assistantMsg.pending = false;
 
@@ -282,11 +297,17 @@
 </script>
 
 <section class="chat">
+  {#if messages.length > 0}
+    <!-- Active thread: a pinned backdrop (doesn't scroll with the messages),
+         edge-weighted and faded through the centre so the reading column stays
+         legible while the margins keep their sparkle. -->
+    <Sparkles count={80} fadeCenter />
+  {/if}
   <div class="scroll" bind:this={scrollEl}>
     {#if messages.length === 0}
-      <!-- Sparkles fill the entire scroll area so they aren't clipped to a
-           small box behind the heading. pointer-events:none on the layer
-           keeps clicks reaching the composer / sidebar untouched. -->
+      <!-- New chat: dense, uniform sparkles filling the scroll area so they
+           aren't clipped to a small box behind the heading. pointer-events:none
+           on the layer keeps clicks reaching the composer / sidebar untouched. -->
       <Sparkles count={70} />
     {/if}
     <div class="thread">
@@ -447,15 +468,20 @@
     flex-direction: column;
     height: 100vh;
     min-width: 0;
+    /* Anchor the pinned active-thread sparkle backdrop. */
+    position: relative;
   }
   .scroll {
     flex: 1;
     overflow-y: auto;
     padding: 1.5rem 1.5rem 0.6rem;
     /* Positioning context for the empty-state sparkle layer so it can fill
-       the whole reading area, not the tiny welcome heading. */
+       the whole reading area, not the tiny welcome heading. Also lifts the
+       thread above the pinned active-thread backdrop (which is transparent, so
+       the sparkles still show through). */
     position: relative;
     isolation: isolate;
+    z-index: 1;
   }
   .scroll > :global(.thread) { position: relative; z-index: 2; }
   .thread {
@@ -570,6 +596,9 @@
   .composer-wrap {
     padding: 0.8rem 1.5rem 1.2rem;
     background: transparent;
+    /* Above the pinned active-thread sparkle backdrop. */
+    position: relative;
+    z-index: 1;
   }
   .composer {
     max-width: 880px;
