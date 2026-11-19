@@ -245,9 +245,9 @@
       }
       assistantMsg.pending = false;
 
-      // Sources (web search) are persisted server-side in onFinish, not in the
-      // text stream. If a source-producing tool ran, pull them in after the fact.
-      if (toolsToSend.includes('web_search')) {
+      // Sources (web search) and generated images are persisted server-side,
+      // not in the text stream. If such a tool ran, pull them in after the fact.
+      if (toolsToSend.includes('web_search') || toolsToSend.includes('image_generation')) {
         try {
           const r = await fetch(`/api/conversations/${cid}`);
           if (r.ok) {
@@ -257,8 +257,11 @@
             if (last?.sources?.length) {
               assistantMsg.sources = last.sources;
             }
+            if (last?.attachments?.length) {
+              assistantMsg.attachments = last.attachments;
+            }
           }
-        } catch { /* sources are best-effort */ }
+        } catch { /* best-effort; a reload shows them */ }
       }
 
       // First exchange → name the chat. Show a first-line placeholder instantly

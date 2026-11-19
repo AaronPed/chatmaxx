@@ -22,10 +22,10 @@
     "vite": "^8.3.8"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.79",
-    "@ai-sdk/google": "^2.0.74",
-    "@ai-sdk/openai": "^2.0.106",
-    "ai": "^5.0.190",
+    "@ai-sdk/anthropic": "^4.0.103",
+    "@ai-sdk/google": "^4.0.119",
+    "@ai-sdk/openai": "^4.0.116",
+    "ai": "^7.0.171",
     "dompurify": "^3.4.3",
     "marked": "^18.0.3",
     "postgres": "^3.4.5",

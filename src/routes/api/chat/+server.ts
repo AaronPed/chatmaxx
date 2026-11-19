@@ -8,7 +8,7 @@ import {
 import {
   getModel as getProviderModel, buildTools, ProviderConfigError
 } from '$lib/server/providers';
-import { availableTools } from '$lib/server/tools';
+import { availableTools, GENERATED_IMAGE_FORMAT } from '$lib/server/tools';
 import { getMeta } from '$lib/server/request-meta';
 import type { RequestHandler } from './$types';
 
@@ -130,25 +130,25 @@ export const POST: RequestHandler = async (event) => {
   while (convo.length && convo[0].role === 'assistant') convo.shift();
 
   const messages: ModelMessage[] = [];
-  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt.content });
   for (const m of convo) {
     if (m.role === 'user' && m.attachments && m.attachments.length > 0) {
       // Mixed-content message: text first, then each image as raw bytes.
       const parts: Array<
         | { type: 'text'; text: string }
-        | { type: 'image'; image: Uint8Array; mediaType: string }
+        | { type: 'file'; data: Uint8Array; mediaType: string }
       > = [];
       if (m.content) parts.push({ type: 'text', text: m.content });
       for (const a of m.attachments) {
         const b64 = (a.data_url.split(',', 2)[1] ?? '');
         parts.push({
-          type: 'image',
-          image: new Uint8Array(Buffer.from(b64, 'base64')),
+          type: 'file',
+          data: new Uint8Array(Buffer.from(b64, 'base64')),
           mediaType: a.mime_type
         });
       }
       messages.push({ role: 'user', content: parts });
-    } else {
+    } else if (m.content) {
+      // Image-only assistant turns have no text to replay.
       messages.push({ role: m.role as 'user' | 'assistant', content: m.content });
     }
   }
@@ -158,7 +158,7 @@ export const POST: RequestHandler = async (event) => {
   const t0 = Date.now();
 
   // Persistence is claimed by exactly one path via `persisted`: the normal
-  // completion (onFinish) or the client-disconnect (stream `cancel`). They're
+  // completion (onEnd) or the client-disconnect (stream `cancel`). They're
   // mutually exclusive — whichever runs first sets the flag.
   //
   // We drive the provider call with our own AbortController rather than
@@ -170,11 +170,13 @@ export const POST: RequestHandler = async (event) => {
   else request.signal.addEventListener('abort', () => upstreamAbort.abort(), { once: true });
 
   let accumulated = '';
+  const generatedImages: Attachment[] = [];
   let clientGone = false;
   let persisted = false;
 
   const result = streamText({
     model: languageModel,
+    ...(systemPrompt ? { instructions: systemPrompt.content } : {}),
     messages,
     ...(tools ? { tools } : {}),
     abortSignal: upstreamAbort.signal,
@@ -187,10 +189,10 @@ export const POST: RequestHandler = async (event) => {
         latencyMs: Date.now() - t0
       }).catch(() => {});
     },
-    onFinish: async ({ text, usage, sources }) => {
+    onEnd: async ({ text, usage, sources }) => {
       // Stopped turns are persisted by `cancel` below; empty turns (errored
       // out) aren't worth a row.
-      if (clientGone || persisted || !text.trim()) return;
+      if (clientGone || persisted || (!text.trim() && generatedImages.length === 0)) return;
       persisted = true;
       try {
         const byUrl = new Map<string, Source>();
@@ -204,6 +206,7 @@ export const POST: RequestHandler = async (event) => {
           modelId: conv.model_id,
           promptTokens: usage?.inputTokens,
           completionTokens: usage?.outputTokens,
+          attachments: generatedImages,
           sources: cited
         });
         await logInteraction({
@@ -220,26 +223,36 @@ export const POST: RequestHandler = async (event) => {
   });
 
   // Persist whatever streamed so far when the client stops/disconnects. Guarded
-  // by `persisted` so it can never double-write against onFinish.
+  // by `persisted` so it can never double-write against onEnd.
   const persistStoppedPartial = async () => {
-    if (persisted || !accumulated.trim()) return;
+    if (persisted || (!accumulated.trim() && generatedImages.length === 0)) return;
     persisted = true;
     await addMessage(conversationId, 'assistant', accumulated + '\n\n_(stopped)_', {
-      modelId: conv.model_id
+      modelId: conv.model_id,
+      attachments: generatedImages
     }).catch((e) => console.error('[chat] stopped-partial persistence failed', e));
   };
 
-  // Hand-rolled stream over fullStream so we can surface a mid-stream provider
+  // Hand-rolled stream over result.stream so we can surface a mid-stream provider
   // error to the client inline — textStream swallows errors silently.
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const part of result.fullStream) {
+        for await (const part of result.stream) {
           if (clientGone) break;
           if (part.type === 'text-delta') {
             accumulated += part.text;
             controller.enqueue(encoder.encode(part.text));
+          } else if (part.type === 'tool-result' && part.toolName === 'image_generation') {
+            // Kept out of the text stream; the client reloads the message for it.
+            const b64 = (part.output as { result: string }).result;
+            generatedImages.push({
+              name: `generated-${generatedImages.length + 1}.${GENERATED_IMAGE_FORMAT}`,
+              mime_type: `image/${GENERATED_IMAGE_FORMAT}`,
+              data_url: `data:image/${GENERATED_IMAGE_FORMAT};base64,${b64}`,
+              size: Math.floor((b64.length * 3) / 4)
+            });
           } else if (part.type === 'error') {
             controller.enqueue(
               encoder.encode(`${accumulated ? '\n\n' : ''}⚠ ${errMessage(part.error)}`)

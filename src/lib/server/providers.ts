@@ -14,10 +14,10 @@
 // here; everything else is data.
 
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel, ToolSet } from 'ai';
-import { isToolId, type ToolId } from './tools';
+import { GENERATED_IMAGE_FORMAT, isToolId, type ToolId } from './tools';
 
 export type ProviderKind = 'anthropic' | 'google' | 'openai-compatible';
 export const PROVIDER_KINDS: ProviderKind[] = ['anthropic', 'google', 'openai-compatible'];
@@ -69,7 +69,7 @@ export function getModel(
 
   if (provider.kind === 'google') {
     const apiKey = readKey(provider, true);
-    return createGoogleGenerativeAI({ apiKey })(modelId);
+    return createGoogle({ apiKey })(modelId);
   }
 
   // openai-compatible
@@ -82,8 +82,8 @@ export function getModel(
     }
     return client.responses(modelId);
   }
-  // Chat Completions. NB: the bare `client(modelId)` callable now defaults to
-  // the Responses API in @ai-sdk/openai v2, which most openai-compatible
+  // Chat Completions. NB: the bare `client(modelId)` callable defaults to
+  // the Responses API, which most openai-compatible
   // backends (Ollama, OpenRouter, DeepSeek, …) don't implement — so be explicit.
   return client.chat(modelId);
 }
@@ -108,7 +108,7 @@ export function buildTools(
     const id: ToolId = raw;
     if (id === 'web_search') tools.web_search = client.tools.webSearch({});
     else if (id === 'code_interpreter') tools.code_interpreter = client.tools.codeInterpreter({});
-    else if (id === 'image_generation') tools.image_generation = client.tools.imageGeneration({});
+    else if (id === 'image_generation') tools.image_generation = client.tools.imageGeneration({ outputFormat: GENERATED_IMAGE_FORMAT });
   }
   return Object.keys(tools).length ? tools : undefined;
 }
