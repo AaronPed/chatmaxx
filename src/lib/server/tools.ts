@@ -20,6 +20,9 @@ export interface ToolDescriptor {
 export const TOOL_IDS = ['web_search', 'code_interpreter', 'image_generation'] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
+/** Format requested from the image_generation tool; its results carry no media type. */
+export const GENERATED_IMAGE_FORMAT = 'png';
+
 export const OPENAI_RESPONSES_TOOLS: ToolDescriptor[] = [
   { id: 'web_search',       label: 'Web search',       description: 'Search the live web and cite sources.' },
   { id: 'code_interpreter', label: 'Code interpreter', description: 'Run Python in a sandbox to compute, analyze, or plot.' },

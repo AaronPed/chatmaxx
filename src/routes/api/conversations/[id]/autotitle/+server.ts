@@ -52,7 +52,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
         ].filter(Boolean).join('\n');
         const { text } = await generateText({
           model: lm,
-          system: settings.title_prompt,
+          instructions: settings.title_prompt,
           prompt: `${convo}\n\nTitle:`,
           // Room for models that reason before answering; cleanTitle trims the result.
           maxOutputTokens: 512
