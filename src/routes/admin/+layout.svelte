@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { toggleTheme, currentTheme } from '$lib/client/theme';
 
   let { children } = $props();
@@ -28,7 +28,7 @@
       <nav class="row" style="gap: 1rem">
         {#each tabs as t}
           <a href={t.href}
-             class:active={$page.url.pathname === t.href || ($page.url.pathname.startsWith(t.href) && t.href !== '/admin')}
+             class:active={page.url.pathname === t.href || (page.url.pathname.startsWith(t.href) && t.href !== '/admin')}
              class="tab">{t.label}</a>
         {/each}
       </nav>

@@ -105,7 +105,7 @@ export async function tokensUsedToday(userId: string): Promise<number> {
   const rows = await sql<{ used: number }[]>`
     select coalesce(sum(coalesce(prompt_tokens, 0) + coalesce(completion_tokens, 0)), 0)::int as used
       from interactions
-     where user_id = ${userId} and ts >= date_trunc('day', now())
+     where user_id = ${userId} and ts >= date_trunc('day', now(), 'UTC')
   `;
   return rows[0]?.used ?? 0;
 }

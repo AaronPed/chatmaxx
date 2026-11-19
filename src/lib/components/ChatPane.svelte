@@ -3,6 +3,7 @@
   import type { ClientUser } from '$lib/client/session';
   import Sparkles from '$lib/components/Sparkles.svelte';
   import { renderMarkdown } from '$lib/client/markdown';
+  import { errorMessage } from '$lib/client/http';
 
   interface ToolDescriptor { id: string; label: string; description: string; }
   interface Model {
@@ -22,7 +23,7 @@
 
   const MAX_FILES = 5;
   const MAX_BYTES = 5 * 1024 * 1024;
-  const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp';
+  const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
   let {
     user,
@@ -31,7 +32,8 @@
     selectedModelId = $bindable<number | null>(),
     initialMessages,
     onConversationStart,
-    onTitleChange
+    onTitleChange,
+    onMessageSent
   }: {
     user: ClientUser;
     conversationId: string | null;
@@ -40,6 +42,7 @@
     initialMessages: UIMessage[];
     onConversationStart: (modelId: number) => Promise<string>;
     onTitleChange: (id: string, title: string, persist?: boolean) => void;
+    onMessageSent: (id: string) => void;
   } = $props();
 
   // Rotating welcome aliases. Picked fresh whenever the user lands on an
@@ -144,8 +147,8 @@
         attachErr = `${f.name} is ${(f.size / 1024 / 1024).toFixed(1)} MB — limit is 5 MB`;
         continue;
       }
-      if (!f.type.startsWith('image/')) {
-        attachErr = `${f.name}: only images for now`;
+      if (!ACCEPTED_TYPES.includes(f.type)) {
+        attachErr = `${f.name}: only PNG, JPEG, GIF or WebP images`;
         continue;
       }
       try {
@@ -216,10 +219,18 @@
         })
       });
       if (!res.ok || !res.body) {
-        assistantMsg.content = `⚠ ${await res.text().catch(() => 'request failed')}`;
+        // Nothing was saved server-side: drop the optimistic user bubble and
+        // hand the draft back so it can be resent.
+        assistantMsg.content = `⚠ ${await errorMessage(res)}`;
         assistantMsg.pending = false;
+        messages = messages.filter((m) => m.id !== userMsg.id);
+        input = content;
+        pendingAttachments = attachmentsToSend;
+        await tick();
+        autosize();
         return;
       }
+      onMessageSent(cid);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
@@ -287,7 +298,7 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       send();
     }
@@ -328,7 +339,7 @@
           {:else}
             {#if m.attachments && m.attachments.length > 0}
               <div class="msg-thumbs">
-                {#each m.attachments as a (a.data_url)}
+                {#each m.attachments as a}
                   <img class="msg-thumb" src={a.data_url} alt={a.name} title={a.name} />
                 {/each}
               </div>
@@ -344,7 +355,7 @@
               <div class="sources">
                 <div class="small italic muted">sources</div>
                 <ol>
-                  {#each m.sources as s (s.url)}
+                  {#each m.sources as s}
                     <li><a href={s.url} target="_blank" rel="noopener noreferrer">{s.title || s.url}</a></li>
                   {/each}
                 </ol>
@@ -360,7 +371,7 @@
     <div class="composer lift">
       {#if pendingAttachments.length > 0}
         <div class="thumbs">
-          {#each pendingAttachments as a, i (a.data_url)}
+          {#each pendingAttachments as a, i}
             <div class="thumb" title={`${a.name} · ${(a.size / 1024).toFixed(0)} KB`}>
               <img src={a.data_url} alt={a.name} />
               <button type="button" class="thumb-x" onclick={() => removeAttachment(i)} aria-label="remove">×</button>
@@ -383,7 +394,7 @@
       <input
         type="file"
         bind:this={fileInputEl}
-        accept={ACCEPT}
+        accept={ACCEPTED_TYPES.join(',')}
         multiple
         hidden
         onchange={onPick}

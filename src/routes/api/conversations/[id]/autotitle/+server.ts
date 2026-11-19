@@ -54,8 +54,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
           model: lm,
           system: settings.title_prompt,
           prompt: `${convo}\n\nTitle:`,
-          maxOutputTokens: 24,
-          temperature: 0.3
+          // Room for models that reason before answering; cleanTitle trims the result.
+          maxOutputTokens: 512
         });
         const cleaned = cleanTitle(text);
         if (cleaned) title = cleaned;

@@ -19,7 +19,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
   }
   if (await getUserByEmail(email)) throw error(409, 'an account with this email already exists');
 
-  const user = await createUser(email, nickname, hashPassword(password));
+  const user = await createUser(email, nickname, hashPassword(password)).catch((e) => {
+    // Unique violation: a concurrent request registered the same email first.
+    if (e?.code === '23505') throw error(409, 'an account with this email already exists');
+    throw e;
+  });
   const { id, expiresAt } = await createUserSession(user.id);
   cookies.set(USER_COOKIE, id, {
     path: '/',

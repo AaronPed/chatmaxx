@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/client/http';
   import type { PageData } from './$types';
   import { invalidateAll } from '$app/navigation';
 
@@ -28,7 +29,7 @@
           history_window: historyWindow
         })
       });
-      if (!res.ok) { err = await res.text(); return; }
+      if (!res.ok) { err = await errorMessage(res); return; }
       saved = true;
       await invalidateAll();
       setTimeout(() => (saved = false), 2000);
