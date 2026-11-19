@@ -36,8 +36,8 @@ function sanitizeAttachments(raw: unknown): Attachment[] {
     if (!ALLOWED_IMAGE_MIME.has(mime_type)) {
       throw error(400, `attachment ${i}: ${mime_type || 'unknown'} not supported (images only)`);
     }
-    if (!data_url.startsWith('data:')) {
-      throw error(400, `attachment ${i}: must be a data URL`);
+    if (!data_url.startsWith(`data:${mime_type};base64,`)) {
+      throw error(400, `attachment ${i}: must be a base64 data URL of its mime type`);
     }
     const b64 = data_url.split(',')[1] ?? '';
     const size = Math.floor((b64.length * 3) / 4);
@@ -193,9 +193,13 @@ export const POST: RequestHandler = async (event) => {
       if (clientGone || persisted || !text.trim()) return;
       persisted = true;
       try {
-        const cited: Source[] = (sources ?? [])
-          .filter((s): s is Extract<typeof s, { sourceType: 'url' }> => s.sourceType === 'url')
-          .map((s) => ({ url: s.url, title: s.title || s.url }));
+        const byUrl = new Map<string, Source>();
+        for (const s of sources ?? []) {
+          if (s.sourceType === 'url' && !byUrl.has(s.url)) {
+            byUrl.set(s.url, { url: s.url, title: s.title || s.url });
+          }
+        }
+        const cited = [...byUrl.values()];
         await addMessage(conversationId, 'assistant', text, {
           modelId: conv.model_id,
           promptTokens: usage?.inputTokens,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/client/http';
   let password = $state('');
   let busy = $state(false);
   let err = $state('');
@@ -14,14 +15,7 @@
         body: JSON.stringify({ password })
       });
       if (!res.ok) {
-        if (res.status === 401) {
-          err = 'Wrong password.';
-        } else {
-          // 429 lockout (or other) — show the server's message.
-          let msg = 'Login failed.';
-          try { const d = await res.json(); if (d?.message) msg = d.message; } catch {}
-          err = msg;
-        }
+        err = res.status === 401 ? 'Wrong password.' : await errorMessage(res);
         return;
       }
       window.location.href = '/admin';

@@ -36,7 +36,7 @@ export const load: PageServerLoad = async () => {
         (select count(*)::int from users) as users,
         (select count(*)::int from conversations) as conversations,
         (select count(*)::int from messages) as messages,
-        (select coalesce(sum(prompt_tokens + completion_tokens), 0)::int from interactions) as tokens
+        (select coalesce(sum(coalesce(prompt_tokens, 0) + coalesce(completion_tokens, 0)), 0)::float8 from interactions) as tokens
     `,
     sql<DailyRow[]>`
       select to_char(date_trunc('day', ts), 'YYYY-MM-DD') as day,
@@ -49,7 +49,7 @@ export const load: PageServerLoad = async () => {
       select coalesce(m.label, '(deleted)') as label,
              coalesce(p.label, '?') as provider,
              count(*)::int as messages,
-             coalesce(sum(i.prompt_tokens + i.completion_tokens), 0)::int as tokens
+             coalesce(sum(coalesce(i.prompt_tokens, 0) + coalesce(i.completion_tokens, 0)), 0)::float8 as tokens
       from interactions i
       left join models m on m.id = i.model_id
       left join providers p on p.id = m.provider_id

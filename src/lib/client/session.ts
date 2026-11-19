@@ -2,6 +2,8 @@
 // set by the server; the client only keeps a copy of the public profile for
 // display. The source of truth on load is the +layout.server.ts `user` field.
 
+import { errorMessage } from './http';
+
 export interface ClientUser { id: string; email: string | null; nickname: string; }
 
 async function postJson(url: string, body: unknown): Promise<ClientUser> {
@@ -10,7 +12,7 @@ async function postJson(url: string, body: unknown): Promise<ClientUser> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error((await res.text()) || 'request failed');
+  if (!res.ok) throw new Error(await errorMessage(res));
   return res.json();
 }
 

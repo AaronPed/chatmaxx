@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { errorMessage } from '$lib/client/http';
   import { logout, type ClientUser } from '$lib/client/session';
   import type { PageData } from './$types';
   import AuthGate from '$lib/components/AuthGate.svelte';
@@ -87,7 +88,7 @@
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ modelId })
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(await errorMessage(res));
     const conv = await res.json();
     conversations = [
       { id: conv.id, title: conv.title, updated_at: conv.updated_at, model_id: conv.model_id, folder_id: conv.folder_id ?? null },
@@ -120,6 +121,15 @@
     }).catch(() => {});
   }
 
+  /** Float a conversation to the top of the sidebar after new activity. */
+  function touchConversation(id: string) {
+    const conv = conversations.find((c) => c.id === id);
+    if (!conv) return;
+    conversations = [
+      { ...conv, updated_at: new Date().toISOString() },
+      ...conversations.filter((c) => c.id !== id)
+    ];
+  }
   async function signOut() {
     await logout();
     user = null;
@@ -204,6 +214,7 @@
       initialMessages={activeMessages}
       onConversationStart={startConversation}
       onTitleChange={patchTitle}
+      onMessageSent={touchConversation}
     />
   </div>
 {/if}

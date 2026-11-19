@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/client/http';
   import type { PageData } from './$types';
   import { invalidateAll } from '$app/navigation';
 
@@ -37,7 +38,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(draft)
       });
-      if (!res.ok) { err = await res.text(); return; }
+      if (!res.ok) { err = await errorMessage(res); return; }
       draft.model_id = '';
       draft.label = '';
       await invalidateAll();
@@ -50,7 +51,7 @@
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patch)
     });
-    if (!res.ok) alert(await res.text());
+    if (!res.ok) alert(await errorMessage(res));
     await invalidateAll();
   }
 

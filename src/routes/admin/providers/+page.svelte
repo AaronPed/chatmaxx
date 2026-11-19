@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/client/http';
   import type { PageData } from './$types';
   import { invalidateAll } from '$app/navigation';
 
@@ -36,7 +37,7 @@
           api_key_env: draft.api_key_env.trim() || null
         })
       });
-      if (!res.ok) { err = await res.text(); return; }
+      if (!res.ok) { err = await errorMessage(res); return; }
       draft.name = '';
       draft.label = '';
       draft.base_url = '';
@@ -51,14 +52,14 @@
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patch)
     });
-    if (!res.ok) alert(await res.text());
+    if (!res.ok) alert(await errorMessage(res));
     await invalidateAll();
   }
 
   async function remove(id: number) {
     if (!confirm('Delete this provider? Only allowed when no models reference it.')) return;
     const res = await fetch(`/api/admin/providers/${id}`, { method: 'DELETE' });
-    if (!res.ok) alert(await res.text());
+    if (!res.ok) alert(await errorMessage(res));
     await invalidateAll();
   }
 </script>

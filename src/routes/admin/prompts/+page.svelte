@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/client/http';
   import type { PageData } from './$types';
   import { invalidateAll } from '$app/navigation';
 
@@ -18,7 +19,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(draft)
       });
-      if (!res.ok) { err = await res.text(); return; }
+      if (!res.ok) { err = await errorMessage(res); return; }
       draft = { name: '', content: '' };
       await invalidateAll();
     } finally { saving = false; }

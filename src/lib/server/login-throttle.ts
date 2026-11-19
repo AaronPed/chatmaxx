@@ -1,5 +1,5 @@
-// Brute-force throttle for the single-password admin panel. In-memory, keyed by
-// client IP — the right tool for a single-instance small app ("just timeouts",
+// Brute-force throttle for the admin and user logins. In-memory, keyed by the
+// caller — the right tool for a single-instance small app ("just timeouts",
 // no external store). State resets on restart, which is fine: an attacker can't
 // force restarts, and a restart only ever loosens, never tightens.
 //
@@ -25,6 +25,9 @@ function prune(now: number): void {
     if (a.lockedUntil <= now && now - a.last > PRUNE_IDLE_MS) attempts.delete(k);
   }
 }
+
+export const lockedMessage = (ms: number) =>
+  `too many attempts — try again in ${Math.ceil(ms / 1000)}s`;
 
 /** Remaining lockout in ms for this key, or 0 if it may attempt now. */
 export function lockRemainingMs(key: string): number {
