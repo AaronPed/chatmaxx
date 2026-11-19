@@ -3,10 +3,10 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 # Install deps with the full dev set so SvelteKit can build.
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-COPY tsconfig.json svelte.config.js vite.config.ts ./
+COPY tsconfig.json vite.config.ts ./
 COPY src ./src
 COPY static ./static
 RUN npm run build

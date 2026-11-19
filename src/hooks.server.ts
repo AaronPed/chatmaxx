@@ -1,4 +1,4 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit/hooks';
 import { isValidSession, ADMIN_COOKIE } from '$lib/server/admin-auth';
 import { getUserIdBySession, USER_COOKIE } from '$lib/server/user-auth';
 import { getUser } from '$lib/server/repo';
@@ -34,5 +34,9 @@ export const handle: Handle = async ({ event, resolve }) => {
     throw error(401, 'login required');
   }
 
-  return resolve(event);
+  const response = await resolve(event);
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  return response;
 };
